@@ -1,7 +1,31 @@
 import { exec } from 'child_process'
 import os from 'os'
+import fs from 'fs'
 
-const getHeight = (value: number) => {
+type Params = {
+  settings?: {
+    height: number
+  }
+  settingsFilePath?: string
+}
+
+const getHeight = (params: Params) => {
+  const { settings, settingsFilePath } = params
+  let value: number
+
+  if (settings) {
+    value = settings.height
+  } else if (settingsFilePath) {
+    const s = getJSONContent(settingsFilePath)
+    if (s) {
+      value = s.height
+    } else {
+      throw Error('File not valid')
+    }
+  } else {
+    throw Error('No settings or file found')
+  }
+
   return new Promise((resolve, reject) => {
     const platform = os.platform()
     console.log(platform)
@@ -35,3 +59,13 @@ const getHeight = (value: number) => {
 }
 
 export { getHeight }
+
+function getJSONContent(filePath: string) {
+  try {
+    const fileContent = fs.readFileSync(filePath, 'utf8')
+    const content = JSON.parse(fileContent)
+    return content
+  } catch (error) {
+    return null
+  }
+}

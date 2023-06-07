@@ -9,10 +9,33 @@ describe('Test Function', () => {
     assert.isFunction(getHeight)
   })
 
-  it('should run ok', async () => {
-    const output = await getHeight(123)
+  it('should run with settings', async () => {
+    const output = await getHeight({
+      settings: {
+        height: 123,
+      },
+    })
     assert.isNotEmpty(output)
-    const output2 = await getHeight(180)
-    assert.isNotEmpty(output2)
+  })
+
+  it('should run with file', async () => {
+    const output = await getHeight({
+      settingsFilePath: './tests/settings.example.json',
+    })
+    assert.isNotEmpty(output)
+  })
+
+  it('should error if empty', () => {
+    assert.throw(() => getHeight({}), Error)
+  })
+
+  it('should error if invalid file', () => {
+    assert.throw(
+      () =>
+        getHeight({
+          settingsFilePath: './not_exists.json',
+        }),
+      Error
+    )
   })
 })
