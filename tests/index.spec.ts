@@ -1,15 +1,18 @@
 import 'mocha'
 import { assert } from 'chai'
-import { test } from '../index'
+import { heightModule } from '../index'
+
+const { getHeight } = heightModule
 
 describe('Test Function', () => {
   it('should be a function', () => {
-    assert.isFunction(test)
+    assert.isFunction(getHeight)
   })
 
-  it('should return the test message', () => {
-    const expected = 'test'
-    const actual = test()
-    assert.equal(actual, expected)
+  it('should run ok', async () => {
+    const output = await getHeight(123)
+    assert.isNotEmpty(output)
+    const output2 = await getHeight(180)
+    assert.isNotEmpty(output2)
   })
 })
