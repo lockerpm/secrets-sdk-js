@@ -1,6 +1,5 @@
 import { ILockerSecret } from './abstraction'
 import { EmptyOutputError } from './abstraction/errors'
-import { Environment, Secret } from './resources'
 import { Action, CommandParams, Target, runCommand } from './utils/command'
 import { Converter } from './utils/converter'
 
@@ -31,13 +30,10 @@ class Locker implements ILockerSecret {
       })
       return Converter.toSecret(res).value
     } catch (error) {
-      if (defaultValue !== undefined) {
-        return defaultValue
+      if (!(error instanceof EmptyOutputError)) {
+        console.error(error)
       }
-      if (error instanceof EmptyOutputError) {
-        return undefined
-      }
-      throw error
+      return defaultValue
     }
   }
 
@@ -67,7 +63,7 @@ class Locker implements ILockerSecret {
       target: Target.SECRET,
       action: Action.UPDATE,
       id: key,
-      data,
+      data: { key, ...data },
     })
     return Converter.toSecret(res)
   }
@@ -110,7 +106,7 @@ class Locker implements ILockerSecret {
       target: Target.ENVIRONMENT,
       action: Action.UPDATE,
       id: name,
-      data,
+      data: { name, ...data },
     })
     return Converter.toEnvironment(res)
   }

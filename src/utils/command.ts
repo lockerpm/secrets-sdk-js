@@ -31,8 +31,9 @@ export const runCommand = (params: CommandParams) => {
         params
       )}`
       exec(command, (error, stdout, stderr) => {
+        // console.log(command)
+        // console.log(stderr || stdout)
         if (error) {
-          console.log(command)
           reject(stderr || stdout)
           return
         }
