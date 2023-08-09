@@ -5,13 +5,14 @@ import { Secret, Environment } from '../src/resources'
 
 require('dotenv').config()
 
+before(() => {
+  locker.accessKey = process.env.ACCESS_KEY || ''
+})
+
+// Listing
 describe('List existing secrets and environments', () => {
   let testSecret: Secret
   let testEnv: Environment
-
-  before(() => {
-    locker.accessKey = process.env.ACCESS_KEY || ''
-  })
 
   it('list secrets', async () => {
     const secrets = await locker.list()
@@ -59,11 +60,8 @@ describe('List existing secrets and environments', () => {
   })
 })
 
+// Create and update env
 describe('Create new and update env', () => {
-  before(() => {
-    locker.accessKey = process.env.ACCESS_KEY || ''
-  })
-
   it('create environment', async () => {
     const payload = {
       name: 'test1',
@@ -83,11 +81,8 @@ describe('Create new and update env', () => {
   })
 })
 
+// Creata and update secret
 describe('Create new and update secret', () => {
-  before(() => {
-    locker.accessKey = process.env.ACCESS_KEY || ''
-  })
-
   it('create secret', async () => {
     const payload = {
       key: 'test1',

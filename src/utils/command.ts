@@ -1,5 +1,6 @@
 import { execSync, exec } from 'child_process'
 import os from 'os'
+import path from 'path'
 
 export enum Target {
   ENVIRONMENT = 'environment',
@@ -31,8 +32,9 @@ export const runCommand = (params: CommandParams) => {
         params
       )}`
       exec(command, (error, stdout, stderr) => {
+        // console.log(command)
+        // console.log(stderr || stdout)
         if (error) {
-          console.log(command)
           reject(stderr || stdout)
           return
         }
@@ -59,17 +61,19 @@ export const runCommandSync = (params: CommandParams) => {
 
 const chooseBinary = () => {
   const platform = os.platform()
-  let filePath = ''
+  const dirs = __dirname.split(path.sep)
+  dirs.pop()
+  let filePath = `${dirs.join(path.sep)}${path.sep}bin${path.sep}`
 
   switch (platform) {
     case 'darwin':
-      filePath = './src/bin/locker_secret_mac'
+      filePath += 'locker_secret_mac'
       break
     case 'win32':
-      filePath = './src/bin/locker_secret_win.exe'
+      filePath += 'locker_secret_win.exe'
       break
     default:
-      filePath = './src/bin/locker_secret_linux'
+      filePath += 'locker_secret_linux'
   }
   return filePath
 }
