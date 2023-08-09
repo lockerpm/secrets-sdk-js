@@ -1,49 +1,60 @@
 import 'mocha'
 import { assert } from 'chai'
 import { locker } from '../index'
+import { Secret, Environment } from '../src/resources'
 
 require('dotenv').config()
 
-// describe('Test Function', () => {
-//   it('should be a function', () => {
-//     assert.isFunction(getHeight)
-//   })
+describe('List existing secrets and environments', () => {
+  let testSecret: Secret
+  let testEnv: Environment
 
-//   it('should run with settings', async () => {
-//     const output = await getHeight({
-//       settings: {
-//         height: 123,
-//       },
-//     })
-//     assert.isNotEmpty(output)
-//   })
-
-//   it('should run with file', async () => {
-//     const output = await getHeight({
-//       settingsFilePath: './tests/settings.example.json',
-//     })
-//     assert.isNotEmpty(output)
-//   })
-
-//   it('should error if empty', () => {
-//     assert.throw(() => getHeight({}), Error)
-//   })
-
-//   it('should error if invalid file', () => {
-//     assert.throw(
-//       () =>
-//         getHeight({
-//           settingsFilePath: './not_exists.json',
-//         }),
-//       Error
-//     )
-//   })
-// })
-
-describe('Test Function', () => {
-  it('should be a function', async () => {
+  before(() => {
     locker.accessKey = process.env.ACCESS_KEY || ''
-    await locker.list()
-    assert.isFunction(locker.test.coreTest)
+  })
+
+  it('list secrets', async () => {
+    const secrets = await locker.list()
+    assert.isArray(secrets)
+    assert.isNotEmpty(secrets)
+    assert.instanceOf(secrets[0], Secret)
+    testSecret = secrets[0]
+  })
+
+  it('list environments', async () => {
+    const environments = await locker.listEnvironments()
+    assert.isArray(environments)
+    assert.isNotEmpty(environments)
+    assert.instanceOf(environments[0], Environment)
+    testEnv = environments[0]
+  })
+
+  it('get 1 secret', async () => {
+    const value = await locker.get(testSecret.key)
+    assert.equal(value, testSecret.value)
+  })
+
+  it('get invalid secret', async () => {
+    const value = await locker.get('a key that not yet created')
+    assert.equal(value, undefined)
+  })
+
+  it('get invalid secret with default value', async () => {
+    const value = await locker.get('a key that not yet created', undefined, 123)
+    assert.equal(value, 123)
+  })
+
+  it('get 1 environment', async () => {
+    const env = await locker.getEnvironment(testEnv.name)
+    assert.equal(env.name, testEnv.name)
+    assert.equal(env._raw.id, testEnv._raw.id)
+  })
+
+  it('get invalid environment', async () => {
+    try {
+      await locker.getEnvironment('an env that not yet created')
+    } catch (e) {
+      assert.instanceOf(e, Error)
+    }
   })
 })

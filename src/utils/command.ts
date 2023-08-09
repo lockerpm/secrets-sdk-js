@@ -1,24 +1,36 @@
 import { execSync, exec } from 'child_process'
 import os from 'os'
 
-type CommandParams = {
-  target: 'environment' | 'secret'
+export enum Target {
+  ENVIRONMENT = 'environment',
+  SECRET = 'secret',
+}
+
+export enum Action {
+  CREATE = 'create',
+  GET = 'get',
+  LIST = 'list',
+  UPDATE = 'update',
+}
+
+export type CommandParams = {
+  target: Target
+  action: Action
   accessKey: string
   apiBase: string
-  action: 'create' | 'get' | 'list' | 'update'
+  id?: string // Key name
+  env?: string
 }
 
 export const runCommand = (params: CommandParams) => {
-  return new Promise((resolve, reject) => {
+  return new Promise<string>((resolve, reject) => {
     try {
       const binaryPath = chooseBinary()
       const command = `chmod +x ${binaryPath} && ${binaryPath} ${objToCommand(
         params
       )}`
-      console.log(command)
       exec(command, (error, stdout, stderr) => {
         if (error) {
-          console.log(123)
           console.log(error)
           reject(stderr)
           return
@@ -29,6 +41,19 @@ export const runCommand = (params: CommandParams) => {
       reject(error)
     }
   })
+}
+
+export const runCommandSync = (params: CommandParams) => {
+  try {
+    const binaryPath = chooseBinary()
+    const command = `chmod +x ${binaryPath} && ${binaryPath} ${objToCommand(
+      params
+    )}`
+    const res = execSync(command).toString()
+    return res
+  } catch (error) {
+    throw error
+  }
 }
 
 const chooseBinary = () => {
@@ -49,7 +74,13 @@ const chooseBinary = () => {
 }
 
 const objToCommand = (obj: CommandParams) => {
-  const { accessKey, apiBase, target, action } = obj
+  const { accessKey, apiBase, target, action, id, env } = obj
   let command = `${target} ${action} --access-key "${accessKey}" --api-base ${apiBase}`
+  if (id) {
+    command += ` --id "${id}"`
+  }
+  if (env) {
+    command += ` --env "${env}"`
+  }
   return command
 }
