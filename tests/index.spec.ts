@@ -1,41 +1,110 @@
 import 'mocha'
 import { assert } from 'chai'
-import { heightModule } from '../index'
+import { locker } from '../index'
+import { Secret, Environment } from '../src/resources'
 
-const { getHeight } = heightModule
+require('dotenv').config()
 
-describe('Test Function', () => {
-  it('should be a function', () => {
-    assert.isFunction(getHeight)
+describe('List existing secrets and environments', () => {
+  let testSecret: Secret
+  let testEnv: Environment
+
+  before(() => {
+    locker.accessKey = process.env.ACCESS_KEY || ''
   })
 
-  it('should run with settings', async () => {
-    const output = await getHeight({
-      settings: {
-        height: 123,
-      },
-    })
-    assert.isNotEmpty(output)
+  it('list secrets', async () => {
+    const secrets = await locker.list()
+    assert.isArray(secrets)
+    assert.isNotEmpty(secrets)
+    assert.instanceOf(secrets[0], Secret)
+    testSecret = secrets[0]
   })
 
-  it('should run with file', async () => {
-    const output = await getHeight({
-      settingsFilePath: './tests/settings.example.json',
-    })
-    assert.isNotEmpty(output)
+  it('list environments', async () => {
+    const environments = await locker.listEnvironments()
+    assert.isArray(environments)
+    assert.isNotEmpty(environments)
+    assert.instanceOf(environments[0], Environment)
+    testEnv = environments[0]
   })
 
-  it('should error if empty', () => {
-    assert.throw(() => getHeight({}), Error)
+  it('get 1 secret', async () => {
+    const value = await locker.get(testSecret.key)
+    assert.equal(value, testSecret.value)
   })
 
-  it('should error if invalid file', () => {
-    assert.throw(
-      () =>
-        getHeight({
-          settingsFilePath: './not_exists.json',
-        }),
-      Error
-    )
+  it('get invalid secret', async () => {
+    const value = await locker.get('a key that not yet created')
+    assert.equal(value, undefined)
+  })
+
+  it('get invalid secret with default value', async () => {
+    const value = await locker.get('a key that not yet created', undefined, 123)
+    assert.equal(value, 123)
+  })
+
+  it('get 1 environment', async () => {
+    const env = await locker.getEnvironment(testEnv.name)
+    assert.equal(env.name, testEnv.name)
+    assert.equal(env._raw.id, testEnv._raw.id)
+  })
+
+  it('get invalid environment', async () => {
+    try {
+      await locker.getEnvironment('an env that not yet created')
+    } catch (e) {
+      assert.instanceOf(e, Error)
+    }
+  })
+})
+
+describe('Create new and update env', () => {
+  before(() => {
+    locker.accessKey = process.env.ACCESS_KEY || ''
+  })
+
+  it('create environment', async () => {
+    const payload = {
+      name: 'test1',
+      externalUrl: 'abc',
+    }
+    const env = await locker.createEnvironment(payload)
+    assert.equal(env.name, payload.name)
+    assert.equal(env.externalUrl, payload.externalUrl)
+  })
+
+  it('edit environment', async () => {
+    const payload = {
+      externalUrl: '123123123',
+    }
+    const env = await locker.modifyEnvironment('test1', payload)
+    assert.equal(env.externalUrl, payload.externalUrl)
+  })
+})
+
+describe('Create new and update secret', () => {
+  before(() => {
+    locker.accessKey = process.env.ACCESS_KEY || ''
+  })
+
+  it('create secret', async () => {
+    const payload = {
+      key: 'test1',
+      value: 'abc',
+      environmentName: 'test1',
+    }
+    const secret = await locker.create(payload)
+    assert.equal(secret.key, payload.key)
+    assert.equal(secret.value, payload.value)
+    assert.equal(secret.environmentName, payload.environmentName)
+  })
+
+  it('edit secret', async () => {
+    const payload = {
+      value: '123123123',
+    }
+    const secret = await locker.modify('test1', payload)
+    assert.equal(secret.value, payload.value)
   })
 })

@@ -1,3 +1,1 @@
-import * as heightModule from './src/height'
-
-export { heightModule }
+export * from './src'
