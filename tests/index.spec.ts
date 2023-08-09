@@ -58,3 +58,27 @@ describe('List existing secrets and environments', () => {
     }
   })
 })
+
+describe('Create new and update env', () => {
+  before(() => {
+    locker.accessKey = process.env.ACCESS_KEY || ''
+  })
+
+  it('create environment', async () => {
+    const payload = {
+      name: 'test1',
+      externalUrl: 'abc',
+    }
+    const env = await locker.createEnvironment(payload)
+    assert.equal(env.name, payload.name)
+    assert.equal(env.externalUrl, payload.externalUrl)
+  })
+
+  it('edit environment', async () => {
+    const payload = {
+      externalUrl: '123123123',
+    }
+    const env = await locker.modifyEnvironment('test1', payload)
+    assert.equal(env.externalUrl, payload.externalUrl)
+  })
+})

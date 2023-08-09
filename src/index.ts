@@ -66,20 +66,44 @@ class Locker implements ILockerSecret {
     return Converter.toEnvironment(res)
   }
 
-  async createEnvironment(name: string): Promise<Environment> {
-    return Promise.resolve(new Environment({}))
-  }
-
-  async modifyEnvironment(name: string): Promise<Environment> {
-    return Promise.resolve(new Environment({}))
-  }
-
-  private _execute(params: Omit<Omit<CommandParams, 'accessKey'>, 'apiBase'>) {
-    return runCommand({
-      ...params,
-      accessKey: this.accessKey,
-      apiBase: this.baseApi,
+  async createEnvironment(data: {
+    name: string
+    externalUrl?: string
+    description?: string
+  }) {
+    const res = await this._execute({
+      target: Target.ENVIRONMENT,
+      action: Action.CREATE,
+      data,
     })
+    return Converter.toEnvironment(res)
+  }
+
+  async modifyEnvironment(
+    name: string,
+    data: { externalUrl?: string; description?: string }
+  ) {
+    const res = await this._execute({
+      target: Target.ENVIRONMENT,
+      action: Action.UPDATE,
+      id: name,
+      data,
+    })
+    return Converter.toEnvironment(res)
+  }
+
+  private async _execute(
+    params: Omit<Omit<CommandParams, 'accessKey'>, 'apiBase'>
+  ) {
+    try {
+      return await runCommand({
+        ...params,
+        accessKey: this.accessKey,
+        apiBase: this.baseApi,
+      })
+    } catch (error) {
+      throw Converter.toError((error as any).toString())
+    }
   }
 }
 

@@ -20,6 +20,7 @@ export type CommandParams = {
   apiBase: string
   id?: string // Key name
   env?: string
+  data?: { [key: string]: any }
 }
 
 export const runCommand = (params: CommandParams) => {
@@ -31,8 +32,8 @@ export const runCommand = (params: CommandParams) => {
       )}`
       exec(command, (error, stdout, stderr) => {
         if (error) {
-          console.log(error)
-          reject(stderr)
+          console.log(command)
+          reject(stderr || stdout)
           return
         }
         resolve(stdout)
@@ -74,7 +75,7 @@ const chooseBinary = () => {
 }
 
 const objToCommand = (obj: CommandParams) => {
-  const { accessKey, apiBase, target, action, id, env } = obj
+  const { accessKey, apiBase, target, action, id, env, data } = obj
   let command = `${target} ${action} --access-key "${accessKey}" --api-base ${apiBase}`
   if (id) {
     command += ` --id "${id}"`
@@ -82,5 +83,26 @@ const objToCommand = (obj: CommandParams) => {
   if (env) {
     command += ` --env "${env}"`
   }
+  if (data) {
+    const dataString = JSON.stringify(JSON.stringify(camelToSnake(data)))
+    command += ` --data ${dataString.slice(1, dataString.length - 1)}`
+  }
   return command
+}
+
+function camelToSnake(obj: { [key: string]: any }) {
+  if (typeof obj !== 'object' || obj === null) {
+    return obj
+  }
+  const snakeCaseObject: { [key: string]: any } = {}
+  for (const key in obj) {
+    if (obj.hasOwnProperty(key)) {
+      const snakeKey = key.replace(
+        /[A-Z]/g,
+        (match) => `_${match.toLowerCase()}`
+      )
+      snakeCaseObject[snakeKey] = camelToSnake(obj[key])
+    }
+  }
+  return snakeCaseObject
 }

@@ -11,15 +11,21 @@ export interface ILockerSecret {
   modify: (key: string, value: string) => Promise<ISecret>
   listEnvironments: () => Promise<IEnvironment[]>
   getEnvironment: (name: string) => Promise<IEnvironment | undefined>
-  createEnvironment: (name: string) => Promise<IEnvironment>
-  modifyEnvironment: (name: string) => Promise<IEnvironment>
+  createEnvironment: (data: {
+    name: string
+    externalUrl?: string
+    description?: string
+  }) => Promise<IEnvironment>
+  modifyEnvironment: (
+    name: string,
+    data: { externalUrl?: string; description?: string }
+  ) => Promise<IEnvironment>
 }
 
 export interface ISecret {
   key: string
   value: string
   description?: string
-  environmentId?: string
   environmentName?: string
 }
 
