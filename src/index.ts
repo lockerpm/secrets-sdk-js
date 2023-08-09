@@ -41,12 +41,35 @@ class Locker implements ILockerSecret {
     }
   }
 
-  async create(key: string, value: string) {
-    return Promise.resolve(new Secret({}))
+  async create(data: {
+    key: string
+    value: string
+    environmentName?: string
+    description?: string
+  }) {
+    const res = await this._execute({
+      target: Target.SECRET,
+      action: Action.CREATE,
+      data,
+    })
+    return Converter.toSecret(res)
   }
 
-  async modify(key: string, value: string) {
-    return Promise.resolve(new Secret({}))
+  async modify(
+    key: string,
+    data: {
+      value: string
+      environmentName?: string
+      description?: string
+    }
+  ) {
+    const res = await this._execute({
+      target: Target.SECRET,
+      action: Action.UPDATE,
+      id: key,
+      data,
+    })
+    return Converter.toSecret(res)
   }
 
   async listEnvironments() {

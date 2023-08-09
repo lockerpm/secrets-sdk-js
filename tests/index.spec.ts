@@ -82,3 +82,29 @@ describe('Create new and update env', () => {
     assert.equal(env.externalUrl, payload.externalUrl)
   })
 })
+
+describe('Create new and update secret', () => {
+  before(() => {
+    locker.accessKey = process.env.ACCESS_KEY || ''
+  })
+
+  it('create secret', async () => {
+    const payload = {
+      key: 'test1',
+      value: 'abc',
+      environmentName: 'test1',
+    }
+    const secret = await locker.create(payload)
+    assert.equal(secret.key, payload.key)
+    assert.equal(secret.value, payload.value)
+    assert.equal(secret.environmentName, payload.environmentName)
+  })
+
+  it('edit secret', async () => {
+    const payload = {
+      value: '123123123',
+    }
+    const secret = await locker.modify('test1', payload)
+    assert.equal(secret.value, payload.value)
+  })
+})

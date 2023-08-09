@@ -7,8 +7,20 @@ export interface ILockerSecret {
     env?: string,
     defaultValue?: any
   ) => Promise<string | undefined>
-  create: (key: string, value: string) => Promise<ISecret>
-  modify: (key: string, value: string) => Promise<ISecret>
+  create: (data: {
+    key: string
+    value: string
+    environmentName?: string
+    description?: string
+  }) => Promise<ISecret>
+  modify: (
+    key: string,
+    data: {
+      value: string
+      environmentName?: string
+      description?: string
+    }
+  ) => Promise<ISecret>
   listEnvironments: () => Promise<IEnvironment[]>
   getEnvironment: (name: string) => Promise<IEnvironment | undefined>
   createEnvironment: (data: {

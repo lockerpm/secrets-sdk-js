@@ -85,7 +85,7 @@ const objToCommand = (obj: CommandParams) => {
   }
   if (data) {
     const dataString = JSON.stringify(JSON.stringify(camelToSnake(data)))
-    command += ` --data ${dataString.slice(1, dataString.length - 1)}`
+    command += ` --data ${dataString}`
   }
   return command
 }
