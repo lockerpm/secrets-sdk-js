@@ -63,6 +63,10 @@ const chooseBinary = () => {
   const platform = os.platform()
   const dirs = __dirname.split(path.sep)
   dirs.pop()
+  if (dirs.includes('cjs') || dirs.includes('esm')) {
+    dirs.pop()
+    dirs.pop()
+  }
   let filePath = `${dirs.join(path.sep)}${path.sep}bin${path.sep}`
 
   switch (platform) {

@@ -24,7 +24,7 @@
     "build": "npm run clean && npm run build:esm && npm run build:cjs && npm run copy-bin",
     "build:esm": "tsc -p ./configs/tsconfig.esm.json && mv lib/esm/index.js lib/esm/index.mjs",
     "build:cjs": "tsc -p ./configs/tsconfig.cjs.json",
-    "copy-bin": "cp -r ./src/bin ./lib/esm/src/bin && cp -r ./src/bin ./lib/cjs/src/bin",
+    "copy-bin": "cp -r ./src/bin ./lib/bin",
     "prepack": "npm run build",
     "test": "mocha"
   },

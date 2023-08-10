@@ -5,7 +5,8 @@ module.exports = {
   spec: './**/*.spec.ts',
   require: 'ts-node/register',
   ignore: [
-    // './tests/index.spec.ts',
+    './tests/index.spec.ts',
+    // './tests/sync.spec.ts',
     './tests/revoked.spec.ts',
     './tests/invalid.spec.ts',
     './tests/readonly.spec.ts'
