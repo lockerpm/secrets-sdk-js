@@ -2,11 +2,13 @@ export interface ILockerSecret {
   baseApi: string
   accessKey: string
   list: () => Promise<ISecret[]>
+  listSync: () => ISecret[]
   get: (
     key: string,
     env?: string,
     defaultValue?: any
   ) => Promise<string | undefined>
+  getSync: (key: string, env?: string, defaultValue?: any) => string | undefined
   create: (data: {
     key: string
     value: string
@@ -22,7 +24,9 @@ export interface ILockerSecret {
     }
   ) => Promise<ISecret>
   listEnvironments: () => Promise<IEnvironment[]>
+  listEnvironmentsSync: () => IEnvironment[]
   getEnvironment: (name: string) => Promise<IEnvironment | undefined>
+  getEnvironmentSync: (name: string) => IEnvironment | undefined
   createEnvironment: (data: {
     name: string
     externalUrl?: string

@@ -1,6 +1,12 @@
 import { ILockerSecret } from './abstraction'
 import { EmptyOutputError } from './abstraction/errors'
-import { Action, CommandParams, Target, runCommand } from './utils/command'
+import {
+  Action,
+  CommandParams,
+  Target,
+  runCommand,
+  runCommandSync,
+} from './utils/command'
 import { Converter } from './utils/converter'
 
 class Locker implements ILockerSecret {
@@ -20,9 +26,34 @@ class Locker implements ILockerSecret {
     return Converter.toSecrets(res)
   }
 
+  listSync() {
+    const res = this._executeSync({
+      target: Target.SECRET,
+      action: Action.LIST,
+    })
+    return Converter.toSecrets(res)
+  }
+
   async get(key: string, env?: string, defaultValue?: any) {
     try {
       const res = await this._execute({
+        target: Target.SECRET,
+        action: Action.GET,
+        id: key,
+        env,
+      })
+      return Converter.toSecret(res).value
+    } catch (error) {
+      if (!(error instanceof EmptyOutputError)) {
+        console.error(error)
+      }
+      return defaultValue
+    }
+  }
+
+  getSync(key: string, env?: string, defaultValue?: any) {
+    try {
+      const res = this._executeSync({
         target: Target.SECRET,
         action: Action.GET,
         id: key,
@@ -76,8 +107,25 @@ class Locker implements ILockerSecret {
     return Converter.toEnvironments(res)
   }
 
+  listEnvironmentsSync() {
+    const res = this._executeSync({
+      target: Target.ENVIRONMENT,
+      action: Action.LIST,
+    })
+    return Converter.toEnvironments(res)
+  }
+
   async getEnvironment(name: string) {
     const res = await this._execute({
+      target: Target.ENVIRONMENT,
+      action: Action.GET,
+      id: name,
+    })
+    return Converter.toEnvironment(res)
+  }
+
+  getEnvironmentSync(name: string) {
+    const res = this._executeSync({
       target: Target.ENVIRONMENT,
       action: Action.GET,
       id: name,
@@ -116,6 +164,20 @@ class Locker implements ILockerSecret {
   ) {
     try {
       return await runCommand({
+        ...params,
+        accessKey: this.accessKey,
+        apiBase: this.baseApi,
+      })
+    } catch (error) {
+      throw Converter.toError((error as any).toString())
+    }
+  }
+
+  private _executeSync(
+    params: Omit<Omit<CommandParams, 'accessKey'>, 'apiBase'>
+  ) {
+    try {
+      return runCommandSync({
         ...params,
         accessKey: this.accessKey,
         apiBase: this.baseApi,
