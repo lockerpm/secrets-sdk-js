@@ -1,21 +1,18 @@
 import { ILockerSecret } from './abstraction'
 import { EmptyOutputError } from './abstraction/errors'
-import {
-  Action,
-  CommandParams,
-  Target,
-  runCommand,
-  runCommandSync,
-} from './utils/command'
+import { Action, CommandParams, Executor, Target } from './abstraction/executor'
+import { executor } from './executors'
 import { Converter } from './utils/converter'
 
 class Locker implements ILockerSecret {
   baseApi: string
   accessKey: string
+  executor: Executor
 
-  constructor() {
+  constructor(executor: Executor) {
     this.accessKey = ''
     this.baseApi = 'https://secrets-core.locker.io'
+    this.executor = executor
   }
 
   async list() {
@@ -163,7 +160,7 @@ class Locker implements ILockerSecret {
     params: Omit<Omit<CommandParams, 'accessKey'>, 'apiBase'>
   ) {
     try {
-      return await runCommand({
+      return await this.executor.runCommand({
         ...params,
         accessKey: this.accessKey,
         apiBase: this.baseApi,
@@ -177,7 +174,7 @@ class Locker implements ILockerSecret {
     params: Omit<Omit<CommandParams, 'accessKey'>, 'apiBase'>
   ) {
     try {
-      return runCommandSync({
+      return this.executor.runCommandSync({
         ...params,
         accessKey: this.accessKey,
         apiBase: this.baseApi,
@@ -188,4 +185,4 @@ class Locker implements ILockerSecret {
   }
 }
 
-export const locker = new Locker()
+export const locker = new Locker(executor)
