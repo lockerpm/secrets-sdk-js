@@ -3,12 +3,19 @@ import { execSync, exec } from 'child_process'
 import os from 'os'
 import path from 'path'
 import { camelToSnake } from '../utils/helpers'
+import { LogLevel } from '../abstraction'
 
 export class BinaryExecutor implements Executor {
   binaryPath: string
+  logLevel: LogLevel
 
   constructor() {
     this.binaryPath = this._chooseBinary()
+    this.logLevel = LogLevel.ERROR
+  }
+
+  setLogLevel(level: LogLevel) {
+    this.logLevel = level
   }
 
   runCommand(params: CommandParams) {
@@ -18,8 +25,10 @@ export class BinaryExecutor implements Executor {
           this.binaryPath
         } ${this._objToCommand(params)}`
         exec(command, (error, stdout, stderr) => {
-          // console.log(command)
-          // console.log(stderr || stdout)
+          if (this.logLevel >= LogLevel.DEBUG) {
+            console.log(command)
+            console.log(stderr || stdout)
+          }
           if (error) {
             reject(stderr || stdout)
             return
@@ -38,6 +47,10 @@ export class BinaryExecutor implements Executor {
         this.binaryPath
       } ${this._objToCommand(params)}`
       const res = execSync(command).toString()
+      if (this.logLevel >= LogLevel.DEBUG) {
+        console.log(command)
+        console.log(res)
+      }
       return res
     } catch (error) {
       throw error
@@ -68,7 +81,7 @@ export class BinaryExecutor implements Executor {
   }
 
   private _objToCommand = (obj: CommandParams) => {
-    const { accessKey, apiBase, target, action, id, env, data } = obj
+    const { accessKey, apiBase, target, action, id, env, data, headers } = obj
     let command = `${target} ${action} --access-key "${accessKey}" --api-base ${apiBase}`
     if (id) {
       command += ` --id "${id}"`
@@ -79,6 +92,15 @@ export class BinaryExecutor implements Executor {
     if (data) {
       const dataString = JSON.stringify(JSON.stringify(camelToSnake(data)))
       command += ` --data ${dataString}`
+    }
+    if (headers) {
+      if (typeof headers !== 'object') {
+        throw Error('Invalid headers')
+      }
+      const headersString = Object.entries(headers)
+        .map((item) => `${item[0]}:${item[1]}`)
+        .join(',')
+      command += ` --headers "${headersString}"`
     }
     return command
   }

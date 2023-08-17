@@ -1,6 +1,7 @@
 export interface ILockerSecret {
   baseApi: string
   accessKey: string
+  headers?: { [key: string]: string }
   list: () => Promise<ISecret[]>
   listSync: () => ISecret[]
   get: (
@@ -51,6 +52,12 @@ export interface IEnvironment {
   description?: string
 }
 
+export enum LogLevel {
+  NONE = 0,
+  ERROR = 1,
+  DEBUG = 2,
+}
+
 export class LockerObj {
   _raw: { [key: string]: any }
   constructor(obj: { [key: string]: any }) {
@@ -60,6 +67,7 @@ export class LockerObj {
     if (this._raw[key] === undefined && defaultValue !== undefined) {
       return defaultValue
     }
+    // TODO: apply type check here
     if (typeof key !== typeof this._raw[key]) {
       throw Error(
         `Invalid value for ${key}. Expected value but got ${this._raw[key]}`

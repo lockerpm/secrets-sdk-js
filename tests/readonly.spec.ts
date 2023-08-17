@@ -1,14 +1,19 @@
 import 'mocha'
 import { assert } from 'chai'
-import { locker } from '../index'
+import { Locker } from '../index'
 import { Secret } from '../src/resources'
+import { LogLevel } from '../src/abstraction'
 
 require('dotenv').config()
 
-before(() => {
-  locker.accessKey = process.env.ACCESS_KEY_READ_ONLY || ''
+const locker = new Locker({
+  accessKey: process.env.ACCESS_KEY_READ_ONLY || '',
+  headers: {
+    'cf-access-client-id': process.env.CF_ACCESS_CLIENT_ID || '',
+    'cf-access-client-secret': process.env.CF_ACCESS_CLIENT_SECRET || '',
+  },
+  logLevel: LogLevel.ERROR,
 })
-
 // Listing
 describe('List existing secrets and environments with readonly key', () => {
   let testSecret: Secret
