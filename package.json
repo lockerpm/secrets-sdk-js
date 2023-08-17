@@ -1,7 +1,7 @@
 {
-  "name": "@locker/secrets-sdk-js",
+  "name": "locker-secrets",
   "version": "0.0.1",
-  "description": "Locker Secrets SDK for JS",
+  "description": "Locker Secrets SDK for NodeJS",
   "exports": {
     ".": {
       "import": {
