@@ -1,12 +1,18 @@
 import 'mocha'
 import { assert } from 'chai'
-import { locker } from '../index'
+import { Locker } from '../index'
 import { Secret, Environment } from '../src/resources'
+import { LogLevel } from '../src/abstraction'
 
 require('dotenv').config()
 
-before(() => {
-  locker.accessKey = process.env.ACCESS_KEY || ''
+const locker = new Locker({
+  accessKey: process.env.ACCESS_KEY || '',
+  headers: {
+    'cf-access-client-id': process.env.CF_ACCESS_CLIENT_ID || '',
+    'cf-access-client-secret': process.env.CF_ACCESS_CLIENT_SECRET || '',
+  },
+  logLevel: LogLevel.ERROR,
 })
 
 // Listing

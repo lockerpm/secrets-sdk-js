@@ -1,21 +1,29 @@
-import { ILockerSecret } from './abstraction'
+import { ILockerSecret, LogLevel } from './abstraction'
 import { EmptyOutputError } from './abstraction/errors'
-import {
-  Action,
-  CommandParams,
-  Target,
-  runCommand,
-  runCommandSync,
-} from './utils/command'
+import { Action, CommandParams, Executor, Target } from './abstraction/executor'
+import { executor } from './executors'
 import { Converter } from './utils/converter'
 
-class Locker implements ILockerSecret {
-  baseApi: string
+export class Locker implements ILockerSecret {
+  apiBase: string
   accessKey: string
+  executor: Executor
+  headers?: { [key: string]: string }
+  logLevel: LogLevel
 
-  constructor() {
-    this.accessKey = ''
-    this.baseApi = 'https://secrets-core.locker.io'
+  constructor(options: {
+    accessKey: string
+    apiBase?: string
+    headers?: { [key: string]: string }
+    logLevel?: LogLevel
+  }) {
+    const { accessKey, apiBase, headers, logLevel } = options
+    this.accessKey = accessKey
+    this.apiBase = apiBase || 'https://secrets-core.locker.io'
+    this.headers = headers
+    this.executor = executor
+    this.logLevel = logLevel || LogLevel.ERROR
+    this.executor.setLogLevel(this.logLevel)
   }
 
   async list() {
@@ -44,7 +52,10 @@ class Locker implements ILockerSecret {
       })
       return Converter.toSecret(res).value
     } catch (error) {
-      if (!(error instanceof EmptyOutputError)) {
+      if (
+        !(error instanceof EmptyOutputError) &&
+        this.logLevel > LogLevel.ERROR
+      ) {
         console.error(error)
       }
       return defaultValue
@@ -61,7 +72,10 @@ class Locker implements ILockerSecret {
       })
       return Converter.toSecret(res).value
     } catch (error) {
-      if (!(error instanceof EmptyOutputError)) {
+      if (
+        !(error instanceof EmptyOutputError) &&
+        this.logLevel > LogLevel.ERROR
+      ) {
         console.error(error)
       }
       return defaultValue
@@ -163,10 +177,11 @@ class Locker implements ILockerSecret {
     params: Omit<Omit<CommandParams, 'accessKey'>, 'apiBase'>
   ) {
     try {
-      return await runCommand({
+      return await this.executor.runCommand({
         ...params,
         accessKey: this.accessKey,
-        apiBase: this.baseApi,
+        apiBase: this.apiBase,
+        headers: this.headers,
       })
     } catch (error) {
       throw Converter.toError((error as any).toString())
@@ -177,15 +192,14 @@ class Locker implements ILockerSecret {
     params: Omit<Omit<CommandParams, 'accessKey'>, 'apiBase'>
   ) {
     try {
-      return runCommandSync({
+      return this.executor.runCommandSync({
         ...params,
         accessKey: this.accessKey,
-        apiBase: this.baseApi,
+        apiBase: this.apiBase,
+        headers: this.headers,
       })
     } catch (error) {
       throw Converter.toError((error as any).toString())
     }
   }
 }
-
-export const locker = new Locker()
