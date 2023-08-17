@@ -5,7 +5,7 @@ import { executor } from './executors'
 import { Converter } from './utils/converter'
 
 export class Locker implements ILockerSecret {
-  baseApi: string
+  apiBase: string
   accessKey: string
   executor: Executor
   headers?: { [key: string]: string }
@@ -13,13 +13,13 @@ export class Locker implements ILockerSecret {
 
   constructor(options: {
     accessKey: string
-    baseApi?: string
+    apiBase?: string
     headers?: { [key: string]: string }
     logLevel?: LogLevel
   }) {
-    const { accessKey, baseApi, headers, logLevel } = options
+    const { accessKey, apiBase, headers, logLevel } = options
     this.accessKey = accessKey
-    this.baseApi = baseApi || 'https://secrets-core.locker.io'
+    this.apiBase = apiBase || 'https://secrets-core.locker.io'
     this.headers = headers
     this.executor = executor
     this.logLevel = logLevel || LogLevel.ERROR
@@ -180,7 +180,7 @@ export class Locker implements ILockerSecret {
       return await this.executor.runCommand({
         ...params,
         accessKey: this.accessKey,
-        apiBase: this.baseApi,
+        apiBase: this.apiBase,
         headers: this.headers,
       })
     } catch (error) {
@@ -195,7 +195,7 @@ export class Locker implements ILockerSecret {
       return this.executor.runCommandSync({
         ...params,
         accessKey: this.accessKey,
-        apiBase: this.baseApi,
+        apiBase: this.apiBase,
         headers: this.headers,
       })
     } catch (error) {

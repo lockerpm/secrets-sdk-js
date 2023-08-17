@@ -101,6 +101,8 @@ describe('Create new and update secret', () => {
     assert.equal(secret.environmentName, payload.environmentName)
   })
 
+  // TODO: create/update secret with same name but different env
+
   it('edit secret', async () => {
     const payload = {
       value: '123123123',

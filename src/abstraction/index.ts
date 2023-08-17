@@ -1,21 +1,60 @@
 export interface ILockerSecret {
-  baseApi: string
+  apiBase: string
   accessKey: string
   headers?: { [key: string]: string }
+
+  /**
+   * List all secrets
+   * @returns
+   */
   list: () => Promise<ISecret[]>
+
+  /**
+   * List all secrets, but synchronously
+   * @returns
+   */
   listSync: () => ISecret[]
+
+  /**
+   * Get a secret value by key and environment name, optionally return a default value
+   * @param key
+   * @param env
+   * @param defaultValue
+   * @returns
+   */
   get: (
     key: string,
     env?: string,
     defaultValue?: any
   ) => Promise<string | undefined>
+
+  /**
+   * Get a secret value synchronously by key and environment name, optionally return a default value
+   * @param key
+   * @param env
+   * @param defaultValue
+   * @returns
+   */
   getSync: (key: string, env?: string, defaultValue?: any) => string | undefined
+
+  /**
+   * Create a secret
+   * @param data
+   * @returns
+   */
   create: (data: {
     key: string
     value: string
     environmentName?: string
     description?: string
   }) => Promise<ISecret>
+
+  /**
+   * Update a secret
+   * @param key
+   * @param data
+   * @returns
+   */
   modify: (
     key: string,
     data: {
@@ -24,15 +63,50 @@ export interface ILockerSecret {
       description?: string
     }
   ) => Promise<ISecret>
+
+  /**
+   * List all environments
+   * @returns
+   */
   listEnvironments: () => Promise<IEnvironment[]>
+
+  /**
+   * List all environments but synchronously
+   * @returns
+   */
   listEnvironmentsSync: () => IEnvironment[]
+
+  /**
+   * Get an environment
+   * @param name
+   * @returns
+   */
   getEnvironment: (name: string) => Promise<IEnvironment | undefined>
+
+  /**
+   * Get an environment but synchronously
+   * @param name
+   * @returns
+   */
   getEnvironmentSync: (name: string) => IEnvironment | undefined
+
+  /**
+   * Create an environment
+   * @param data
+   * @returns
+   */
   createEnvironment: (data: {
     name: string
     externalUrl?: string
     description?: string
   }) => Promise<IEnvironment>
+
+  /**
+   * Update an environment
+   * @param name
+   * @param data
+   * @returns
+   */
   modifyEnvironment: (
     name: string,
     data: { externalUrl?: string; description?: string }

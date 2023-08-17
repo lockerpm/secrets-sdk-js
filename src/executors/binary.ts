@@ -82,7 +82,7 @@ export class BinaryExecutor implements Executor {
 
   private _objToCommand = (obj: CommandParams) => {
     const { accessKey, apiBase, target, action, id, env, data, headers } = obj
-    let command = `${target} ${action} --access-key "${accessKey}" --api-base ${apiBase}`
+    let command = `${target} ${action} --access-key "${accessKey}" --api-base ${apiBase} --client nodejs`
     if (id) {
       command += ` --id "${id}"`
     }
