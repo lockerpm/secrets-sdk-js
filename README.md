@@ -140,6 +140,8 @@ npm install
 
 ### Run tests
 
+Create a .env file with required access keys (refer to `.env.example`)
+
 To run all tests, use:
 ```
 npm test

@@ -2,6 +2,7 @@ import { CommandParams, Executor } from '../abstraction/executor'
 import { execSync, exec } from 'child_process'
 import os from 'os'
 import path from 'path'
+import fs from 'fs'
 import { camelToSnake } from '../utils/helpers'
 import { LogLevel } from '../abstraction'
 
@@ -12,6 +13,7 @@ export class BinaryExecutor implements Executor {
   constructor() {
     this.binaryPath = this._chooseBinary()
     this.logLevel = LogLevel.ERROR
+    this._grantPermission()
   }
 
   setLogLevel(level: LogLevel) {
@@ -21,9 +23,7 @@ export class BinaryExecutor implements Executor {
   runCommand(params: CommandParams) {
     return new Promise<string>((resolve, reject) => {
       try {
-        const command = `chmod +x ${this.binaryPath} && ${
-          this.binaryPath
-        } ${this._objToCommand(params)}`
+        const command = `${this.binaryPath} ${this._objToCommand(params)}`
         exec(command, (error, stdout, stderr) => {
           if (this.logLevel >= LogLevel.DEBUG) {
             console.log(command)
@@ -43,9 +43,7 @@ export class BinaryExecutor implements Executor {
 
   runCommandSync(params: CommandParams) {
     try {
-      const command = `chmod +x ${this.binaryPath} && ${
-        this.binaryPath
-      } ${this._objToCommand(params)}`
+      const command = `${this.binaryPath} ${this._objToCommand(params)}`
       const res = execSync(command).toString()
       if (this.logLevel >= LogLevel.DEBUG) {
         console.log(command)
@@ -72,12 +70,27 @@ export class BinaryExecutor implements Executor {
         filePath += 'locker_secret_mac'
         break
       case 'win32':
-        filePath += 'locker_secret_win.exe'
+        filePath += 'locker_secret.exe'
         break
       default:
         filePath += 'locker_secret_linux'
     }
     return filePath
+  }
+
+  private _grantPermission() {
+    try {
+      try {
+        fs.accessSync(this.binaryPath, fs.constants.X_OK)
+      } catch (e) {
+        fs.chmodSync(this.binaryPath, fs.constants.X_OK)
+      }
+    } catch (error) {
+      if (this.logLevel >= LogLevel.DEBUG) {
+        console.log(error)
+      }
+      throw Error('Cannot grant execute permission for binary')
+    }
   }
 
   private _objToCommand = (obj: CommandParams) => {
