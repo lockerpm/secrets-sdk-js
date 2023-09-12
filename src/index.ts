@@ -1,30 +1,35 @@
 import { ILockerSecret, LogLevel } from './abstraction'
 import { EmptyOutputError } from './abstraction/errors'
 import { Action, CommandParams, Executor, Target } from './abstraction/executor'
-import { executor } from './executors'
+import { BinaryExecutor } from './executors/binary'
 import { Converter } from './utils/converter'
+import { Logger } from './utils/logger'
 
 export class Locker implements ILockerSecret {
   apiBase: string
-  accessKey: string
+  accessKeyId: string
+  accessKeySecret: string
   executor: Executor
   headers?: { [key: string]: string }
-  logLevel: LogLevel
+  logger: Logger
 
   constructor(options: {
-    accessKey: string
+    accessKeyId: string
+    accessKeySecret: string
     apiBase?: string
     headers?: { [key: string]: string }
     logLevel?: LogLevel
   }) {
-    const { accessKey, apiBase, headers, logLevel } = options
-    this.accessKey = accessKey
+    const { accessKeyId, accessKeySecret, apiBase, headers, logLevel } = options
+    this.accessKeyId = accessKeyId
+    this.accessKeySecret = accessKeySecret
     this.apiBase = apiBase || 'https://secrets-core.locker.io'
     this.headers = headers
-    this.executor = executor
-    this.logLevel = logLevel || LogLevel.ERROR
-    this.executor.setLogLevel(this.logLevel)
+    this.logger = new Logger(logLevel || LogLevel.ERROR)
+    this.executor = new BinaryExecutor(this.logger)
   }
+
+  // ---------------- SECRET ----------------
 
   async list() {
     const res = await this._execute({
@@ -47,16 +52,13 @@ export class Locker implements ILockerSecret {
       const res = await this._execute({
         target: Target.SECRET,
         action: Action.GET,
-        id: key,
+        name: key,
         env,
       })
       return Converter.toSecret(res).value
     } catch (error) {
-      if (
-        !(error instanceof EmptyOutputError) &&
-        this.logLevel > LogLevel.ERROR
-      ) {
-        console.error(error)
+      if (!(error instanceof EmptyOutputError)) {
+        this.logger.error(error)
       }
       return defaultValue
     }
@@ -67,16 +69,13 @@ export class Locker implements ILockerSecret {
       const res = this._executeSync({
         target: Target.SECRET,
         action: Action.GET,
-        id: key,
+        name: key,
         env,
       })
       return Converter.toSecret(res).value
     } catch (error) {
-      if (
-        !(error instanceof EmptyOutputError) &&
-        this.logLevel > LogLevel.ERROR
-      ) {
-        console.error(error)
+      if (!(error instanceof EmptyOutputError)) {
+        this.logger.error(error)
       }
       return defaultValue
     }
@@ -98,6 +97,7 @@ export class Locker implements ILockerSecret {
 
   async modify(
     key: string,
+    env: string,
     data: {
       value: string
       environmentName?: string
@@ -107,11 +107,14 @@ export class Locker implements ILockerSecret {
     const res = await this._execute({
       target: Target.SECRET,
       action: Action.UPDATE,
-      id: key,
+      name: key,
+      env,
       data: { key, ...data },
     })
     return Converter.toSecret(res)
   }
+
+  // ---------------- ENV ----------------
 
   async listEnvironments() {
     const res = await this._execute({
@@ -133,7 +136,7 @@ export class Locker implements ILockerSecret {
     const res = await this._execute({
       target: Target.ENVIRONMENT,
       action: Action.GET,
-      id: name,
+      name,
     })
     return Converter.toEnvironment(res)
   }
@@ -142,7 +145,7 @@ export class Locker implements ILockerSecret {
     const res = this._executeSync({
       target: Target.ENVIRONMENT,
       action: Action.GET,
-      id: name,
+      name,
     })
     return Converter.toEnvironment(res)
   }
@@ -167,19 +170,25 @@ export class Locker implements ILockerSecret {
     const res = await this._execute({
       target: Target.ENVIRONMENT,
       action: Action.UPDATE,
-      id: name,
+      name,
       data: { name, ...data },
     })
     return Converter.toEnvironment(res)
   }
 
+  // ----------------- PRIVATE METHDOS -----------------
+
   private async _execute(
-    params: Omit<Omit<CommandParams, 'accessKey'>, 'apiBase'>
+    params: Omit<
+      Omit<Omit<CommandParams, 'accessKeyId'>, 'accessKeySecret'>,
+      'apiBase'
+    >
   ) {
     try {
       return await this.executor.runCommand({
         ...params,
-        accessKey: this.accessKey,
+        accessKeyId: this.accessKeyId,
+        accessKeySecret: this.accessKeySecret,
         apiBase: this.apiBase,
         headers: this.headers,
       })
@@ -189,12 +198,16 @@ export class Locker implements ILockerSecret {
   }
 
   private _executeSync(
-    params: Omit<Omit<CommandParams, 'accessKey'>, 'apiBase'>
+    params: Omit<
+      Omit<Omit<CommandParams, 'accessKeyId'>, 'accessKeySecret'>,
+      'apiBase'
+    >
   ) {
     try {
       return this.executor.runCommandSync({
         ...params,
-        accessKey: this.accessKey,
+        accessKeyId: this.accessKeyId,
+        accessKeySecret: this.accessKeySecret,
         apiBase: this.apiBase,
         headers: this.headers,
       })

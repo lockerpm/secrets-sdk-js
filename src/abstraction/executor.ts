@@ -1,5 +1,3 @@
-import { LogLevel } from '.'
-
 export enum Target {
   ENVIRONMENT = 'environment',
   SECRET = 'secret',
@@ -15,16 +13,16 @@ export enum Action {
 export type CommandParams = {
   target: Target
   action: Action
-  accessKey: string
+  accessKeyId: string
+  accessKeySecret: string
   apiBase: string
-  id?: string // Key name
+  name?: string
   env?: string
   data?: { [key: string]: any }
   headers?: { [key: string]: any }
 }
 
 export interface Executor {
-  setLogLevel: (level: LogLevel) => void
   runCommand: (params: CommandParams) => Promise<string>
   runCommandSync: (params: CommandParams) => string
 }

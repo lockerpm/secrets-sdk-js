@@ -1,8 +1,6 @@
 import { EmptyOutputError } from '../abstraction/errors'
 import { Environment, Secret } from '../resources'
 
-const SIGNATURE = '----------- LOG BREAK -----------'
-
 export class Converter {
   public static toSecrets(output: string) {
     const objs = extractDataFromOutput(output)
@@ -37,11 +35,9 @@ export class Converter {
   }
 
   public static toError(output: string) {
-    if (output.includes(SIGNATURE)) {
-      const obj = extractDataFromOutput(output)
-      if (obj?.message) {
-        return new Error(obj.message)
-      }
+    const obj = extractDataFromOutput(output)
+    if (obj?.message) {
+      return new Error(obj.message)
     }
     return new Error(output)
   }
@@ -49,9 +45,8 @@ export class Converter {
 
 const extractDataFromOutput = (output: string) => {
   try {
-    const dataString = output.split(SIGNATURE)[1]
-    if (dataString.trim()) {
-      return JSON.parse(dataString)
+    if (output.trim()) {
+      return JSON.parse(output)
     }
   } catch (error) {
     throw Error('Invalid output')

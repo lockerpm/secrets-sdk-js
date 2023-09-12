@@ -4,20 +4,16 @@ import os from 'os'
 import path from 'path'
 import fs from 'fs'
 import { camelToSnake } from '../utils/helpers'
-import { LogLevel } from '../abstraction'
+import { Logger } from '../utils/logger'
 
 export class BinaryExecutor implements Executor {
   binaryPath: string
-  logLevel: LogLevel
+  logger: Logger
 
-  constructor() {
+  constructor(logger: Logger) {
+    this.logger = logger
     this.binaryPath = this._chooseBinary()
-    this.logLevel = LogLevel.ERROR
     this._grantPermission()
-  }
-
-  setLogLevel(level: LogLevel) {
-    this.logLevel = level
   }
 
   runCommand(params: CommandParams) {
@@ -25,10 +21,8 @@ export class BinaryExecutor implements Executor {
       try {
         const command = `${this.binaryPath} ${this._objToCommand(params)}`
         exec(command, (error, stdout, stderr) => {
-          if (this.logLevel >= LogLevel.DEBUG) {
-            console.log(command)
-            console.log(stderr || stdout)
-          }
+          this.logger.debug(command)
+          this.logger.debug(stderr || stdout)
           if (error) {
             reject(stderr || stdout)
             return
@@ -45,10 +39,8 @@ export class BinaryExecutor implements Executor {
     try {
       const command = `${this.binaryPath} ${this._objToCommand(params)}`
       const res = execSync(command).toString()
-      if (this.logLevel >= LogLevel.DEBUG) {
-        console.log(command)
-        console.log(res)
-      }
+      this.logger.debug(command)
+      this.logger.debug(res)
       return res
     } catch (error) {
       throw error
@@ -81,23 +73,32 @@ export class BinaryExecutor implements Executor {
   private _grantPermission() {
     try {
       try {
-        fs.accessSync(this.binaryPath, fs.constants.X_OK)
+        fs.accessSync(this.binaryPath, 111)
       } catch (e) {
-        fs.chmodSync(this.binaryPath, fs.constants.X_OK)
+        fs.chmodSync(this.binaryPath, 111)
       }
     } catch (error) {
-      if (this.logLevel >= LogLevel.DEBUG) {
-        console.log(error)
-      }
+      this.logger.error(error)
       throw Error('Cannot grant execute permission for binary')
     }
   }
 
   private _objToCommand = (obj: CommandParams) => {
-    const { accessKey, apiBase, target, action, id, env, data, headers } = obj
-    let command = `${target} ${action} --access-key "${accessKey}" --api-base ${apiBase} --client nodejs`
-    if (id) {
-      command += ` --id "${id}"`
+    const {
+      accessKeyId,
+      accessKeySecret,
+      apiBase,
+      target,
+      action,
+      name,
+      env,
+      data,
+      headers,
+    } = obj
+    const agent = `NodeJS${process.versions.node}`
+    let command = `${target} ${action} --access-key-id "${accessKeyId}" --access-key-secret "${accessKeySecret}" --api-base ${apiBase} --agent ${agent} --verbose`
+    if (name) {
+      command += ` --name "${name}"`
     }
     if (env) {
       command += ` --env "${env}"`
