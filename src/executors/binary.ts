@@ -95,8 +95,9 @@ export class BinaryExecutor implements Executor {
       data,
       headers,
     } = obj
-    const agent = `NodeJS${process.versions.node}`
-    let command = `${target} ${action} --access-key-id "${accessKeyId}" --access-key-secret "${accessKeySecret}" --api-base ${apiBase} --agent ${agent} --verbose`
+    // TODO: replace with SDK version
+    const agent = `NodeJS - ${process.versions.node}`
+    let command = `${target} ${action} --access-key-id "${accessKeyId}" --access-key-secret "${accessKeySecret}" --api-base ${apiBase} --agent "${agent}" --verbose`
     if (name) {
       command += ` --name "${name}"`
     }
