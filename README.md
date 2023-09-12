@@ -30,19 +30,19 @@ The documentation will be updated later.
 
 ## Requirements
 
-- Node 16+
+- Node 12+
 
 ## Installation
 
 Install from npm:
 
-```
+```bash
 npm install -S locker-secrets
 ```
 
 Install from yarn:
 
-```
+```bash
 yarn add locker-secrets
 ```
 
@@ -51,16 +51,17 @@ yarn add locker-secrets
 ### Set up access key
 
 The SDK needs to be configured with your access key which is available in your Locker Secret Dashboard. 
-Initialize the `accessKey` to its value. 
+Initialize the `accessKeyId` and `accessKeySecret` to their value. 
 You also need to set `apiBase` value (default is `https://secrets-core.locker.io`).
 
 If you need to set your custom headers, you can set the `headers` value in the params:
 
-```
+```js
 import { Locker } from 'locker-secrets'
 
 const locker = new Locker({
-  accessKey: '<your access key>',
+  accessKeyId: '<your access key id>',
+  accessKeySecret: '<your access key secret>',
   apiBase: '<your api base>',
   // optional
   headers: {
@@ -71,13 +72,14 @@ const locker = new Locker({
 
 Now, you can use SDK to get or set values:
 
-```
+```js
 // Get list secrets quickly
 const secrets = await locker.list()
 // or
 const secrets = locker.listSync()
 
-// Get a secret value by secret key. 
+// Get a secret value by secret key
+// Replace 'ENVIRONMENT' with null or undefined for the enviroment ALL 
 const secretValue1 = await locker.get('SECRET_NAME_1')
 const secretValue2 = await locker.get('SECRET_NAME_2', 'ENVIRONMENT')
 const secretValue3 = await locker.get('SECRET_NAME_3', 'ENVIRONMENT', 'default value')
@@ -91,8 +93,8 @@ const secret = await locker.create({
   environmentName: 'environmentName'
 })
 
-// Update new secret
-const secret = await locker.modify('SECRET', {
+// Update secret
+const secret = await locker.modify('SECRET', 'ENVIRONMENT', {
   value: 'value',
   environmentName: 'environmentName'
 })
@@ -124,9 +126,9 @@ const environment = await locker.modifyEnvironment("name", {
 The library can be configured to emit logging that will give you better insight into what it's doing. 
 There are some levels: `NONE (0)`, `ERROR (1)`, `DEBUG (2)`.
 Set the logging level when creating a Locker instance to enabling it:
-```
+```js
 const locker = new Locker({
-  ...
+  // ...
   logLevel: 1  // default is ERROR
 })
 ```
@@ -134,7 +136,7 @@ const locker = new Locker({
 ## Development
 
 Install required packages.
-```
+```bash
 npm install
 ```
 
@@ -143,12 +145,12 @@ npm install
 Create a .env file with required access keys (refer to `.env.example`)
 
 To run all tests, use:
-```
+```bash
 npm test
 ```
 
 Run some tests only, please update `mocharc.js`:
-```
+```js
 ignore: [
   // './tests/index.spec.ts', // Comment the file you want to test
   './tests/sync.spec.ts',

@@ -1,6 +1,7 @@
 export interface ILockerSecret {
   apiBase: string
-  accessKey: string
+  accessKeyId: string
+  accessKeySecret: string
   headers?: { [key: string]: string }
 
   /**
@@ -57,6 +58,7 @@ export interface ILockerSecret {
    */
   modify: (
     key: string,
+    env: string,
     data: {
       value: string
       environmentName?: string

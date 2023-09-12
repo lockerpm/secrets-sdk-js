@@ -5,8 +5,11 @@ import { LogLevel } from '../src/abstraction'
 
 require('dotenv').config()
 
+const accessKey = process.env.ACCESS_KEY_INVALID || ''
+const [accessKeyId, accessKeySecret] = accessKey.split(':')
 const locker = new Locker({
-  accessKey: process.env.ACCESS_KEY_INVALID || '',
+  accessKeyId,
+  accessKeySecret,
   headers: {
     'cf-access-client-id': process.env.CF_ACCESS_CLIENT_ID || '',
     'cf-access-client-secret': process.env.CF_ACCESS_CLIENT_SECRET || '',
@@ -38,7 +41,7 @@ describe('List existing secrets and environments with invalid key', () => {
 })
 
 // Create and update env
-describe('Update env with revoked key', () => {
+describe('Update env with invalid key', () => {
   it('edit environment', async () => {
     let res: any
     const payload = {

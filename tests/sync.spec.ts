@@ -6,8 +6,11 @@ import { LogLevel } from '../src/abstraction'
 
 require('dotenv').config()
 
+const accessKey = process.env.ACCESS_KEY || ''
+const [accessKeyId, accessKeySecret] = accessKey.split(':')
 const locker = new Locker({
-  accessKey: process.env.ACCESS_KEY || '',
+  accessKeyId,
+  accessKeySecret,
   headers: {
     'cf-access-client-id': process.env.CF_ACCESS_CLIENT_ID || '',
     'cf-access-client-secret': process.env.CF_ACCESS_CLIENT_SECRET || '',
@@ -37,7 +40,7 @@ describe('List existing secrets and environments using synchronized method', () 
   })
 
   it('get 1 secret', () => {
-    const value = locker.getSync(testSecret.key)
+    const value = locker.getSync(testSecret.key, testSecret.environmentName)
     assert.equal(value, testSecret.value)
   })
 

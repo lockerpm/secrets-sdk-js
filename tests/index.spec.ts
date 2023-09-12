@@ -6,8 +6,16 @@ import { LogLevel } from '../src/abstraction'
 
 require('dotenv').config()
 
+/**
+ * These tests require an existing project with 1 secret named first (All) and 1 env named init
+ * Because a SDK doesn't have permission to delete --> no way to clean up
+ */
+
+const accessKey = process.env.ACCESS_KEY || ''
+const [accessKeyId, accessKeySecret] = accessKey.split(':')
 const locker = new Locker({
-  accessKey: process.env.ACCESS_KEY || '',
+  accessKeyId,
+  accessKeySecret,
   headers: {
     'cf-access-client-id': process.env.CF_ACCESS_CLIENT_ID || '',
     'cf-access-client-secret': process.env.CF_ACCESS_CLIENT_SECRET || '',
@@ -101,13 +109,55 @@ describe('Create new and update secret', () => {
     assert.equal(secret.environmentName, payload.environmentName)
   })
 
-  // TODO: create/update secret with same name but different env
+  it('create secret with duplicated key', async () => {
+    const payload = {
+      key: 'test1',
+      value: 'another value',
+      environmentName: 'test1',
+    }
+    let res: any
+    try {
+      res = await locker.create(payload)
+    } catch (e) {
+      res = e
+    }
+    assert.instanceOf(res, Error)
+  })
+
+  it('create secret with invalid env', async () => {
+    const payload = {
+      key: 'test2',
+      value: 'new value',
+      environmentName: 'not existed',
+    }
+    let res: any
+    try {
+      res = await locker.create(payload)
+    } catch (e) {
+      res = e
+    }
+    assert.instanceOf(res, Error)
+  })
+
+  it('create secret with duplicated key but different env', async () => {
+    const payload = {
+      key: 'test1',
+      value: 'another value',
+      environmentName: 'init',
+    }
+    const secret = await locker.create(payload)
+    assert.equal(secret.key, payload.key)
+    assert.equal(secret.value, payload.value)
+    assert.equal(secret.environmentName, payload.environmentName)
+  })
 
   it('edit secret', async () => {
     const payload = {
-      value: '123123123',
+      value: 'a new new value',
+      environmentName: 'init',
     }
-    const secret = await locker.modify('test1', payload)
+    const secret = await locker.modify('test1', 'test1', payload)
     assert.equal(secret.value, payload.value)
+    assert.equal(secret.environmentName, payload.environmentName)
   })
 })
