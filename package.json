@@ -1,6 +1,6 @@
 {
   "name": "locker-secrets",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Locker Secrets SDK for NodeJS",
   "exports": {
     ".": {
