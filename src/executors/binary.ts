@@ -7,19 +7,23 @@ import { camelToSnake } from '../utils/helpers'
 import { Logger } from '../utils/logger'
 
 export class BinaryExecutor implements Executor {
-  binaryPath: string
   logger: Logger
+
+  _binaryPath: string
+
+  _agent: string
 
   constructor(logger: Logger) {
     this.logger = logger
-    this.binaryPath = this._chooseBinary()
+    this._binaryPath = this._chooseBinary()
+    this._agent = this._getAgent()
     this._grantPermission()
   }
 
   runCommand(params: CommandParams) {
     return new Promise<string>((resolve, reject) => {
       try {
-        const command = `${this.binaryPath} ${this._objToCommand(params)}`
+        const command = `${this._binaryPath} ${this._objToCommand(params)}`
         exec(command, (error, stdout, stderr) => {
           this.logger.debug(command)
           this.logger.debug(stderr || stdout)
@@ -37,7 +41,7 @@ export class BinaryExecutor implements Executor {
 
   runCommandSync(params: CommandParams) {
     try {
-      const command = `${this.binaryPath} ${this._objToCommand(params)}`
+      const command = `${this._binaryPath} ${this._objToCommand(params)}`
       const res = execSync(command).toString()
       this.logger.debug(command)
       this.logger.debug(res)
@@ -47,14 +51,11 @@ export class BinaryExecutor implements Executor {
     }
   }
 
+  // -------------------- PRIVATE METHODS --------------------
+
   private _chooseBinary() {
     const platform = os.platform()
-    const dirs = __dirname.split(path.sep)
-    dirs.pop()
-    if (dirs.includes('cjs') || dirs.includes('esm')) {
-      dirs.pop()
-      dirs.pop()
-    }
+    const dirs = this._getSrcPath()
     let filePath = `${dirs.join(path.sep)}${path.sep}bin${path.sep}`
 
     switch (platform) {
@@ -70,12 +71,30 @@ export class BinaryExecutor implements Executor {
     return filePath
   }
 
+  private _getAgent() {
+    const dirs = this._getSrcPath()
+    dirs.pop()
+    let packageJSONPath = `${dirs.join(path.sep)}${path.sep}package.json`
+    const packageJSON = require(packageJSONPath)
+    return `NodeJs - ${packageJSON.version}`
+  }
+
+  private _getSrcPath() {
+    const dirs = __dirname.split(path.sep)
+    dirs.pop()
+    if (dirs.includes('cjs') || dirs.includes('esm')) {
+      dirs.pop()
+      dirs.pop()
+    }
+    return dirs
+  }
+
   private _grantPermission() {
     try {
       try {
-        fs.accessSync(this.binaryPath, 111)
+        fs.accessSync(this._binaryPath, 0o555)
       } catch (e) {
-        fs.chmodSync(this.binaryPath, 111)
+        fs.chmodSync(this._binaryPath, 0o555)
       }
     } catch (error) {
       this.logger.error(error)
@@ -95,9 +114,7 @@ export class BinaryExecutor implements Executor {
       data,
       headers,
     } = obj
-    // TODO: replace with SDK version
-    const agent = `NodeJS - ${process.versions.node}`
-    let command = `${target} ${action} --access-key-id "${accessKeyId}" --access-key-secret "${accessKeySecret}" --api-base ${apiBase} --agent "${agent}" --verbose`
+    let command = `${target} ${action} --access-key-id "${accessKeyId}" --access-key-secret "${accessKeySecret}" --api-base ${apiBase} --agent "${this._agent}" --verbose`
     if (name) {
       command += ` --name "${name}"`
     }
