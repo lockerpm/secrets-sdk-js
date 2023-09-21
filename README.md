@@ -37,13 +37,13 @@ The documentation will be updated later.
 Install from npm:
 
 ```bash
-npm install -S locker-secrets
+npm install -S lockerpm
 ```
 
 Install from yarn:
 
 ```bash
-yarn add locker-secrets
+yarn add lockerpm
 ```
 
 ## Usages
@@ -57,7 +57,7 @@ You also need to set `apiBase` value (default is `https://secrets-core.locker.io
 If you need to set your custom headers, you can set the `headers` value in the params:
 
 ```js
-import { Locker } from 'locker-secrets'
+import { Locker } from 'lockerpm'
 
 const locker = new Locker({
   accessKeyId: '<your access key id>',
