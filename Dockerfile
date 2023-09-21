@@ -4,6 +4,12 @@ WORKDIR /app
 
 RUN apt update
 
+COPY package.json .
+
+COPY package-lock.json .
+
+RUN npm install
+
 COPY . .
 
 ARG NPM_TOKEN
