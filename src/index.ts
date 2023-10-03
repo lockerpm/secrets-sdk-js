@@ -113,7 +113,7 @@ export class Locker implements ILockerSecret {
       action: Action.UPDATE,
       name: key,
       env,
-      data: { key, ...data },
+      data: { key, ...data, environmentName: data.environmentName || null },
     })
     return Converter.toSecret(res)
   }

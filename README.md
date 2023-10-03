@@ -160,7 +160,6 @@ Run some tests only, please update `mocharc.js`:
 ignore: [
   // './tests/index.spec.ts', // Comment the file you want to test
   './tests/sync.spec.ts',
-  './tests/revoked.spec.ts',
   './tests/invalid.spec.ts',
   './tests/readonly.spec.ts'
 ]
