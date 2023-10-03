@@ -6,6 +6,10 @@ import { LogLevel } from '../src/abstraction'
 
 require('dotenv').config()
 
+/**
+ * Test synchronized functions
+ */
+
 const accessKey = process.env.ACCESS_KEY || ''
 const [accessKeyId, accessKeySecret] = accessKey.split(':')
 const locker = new Locker({
@@ -19,7 +23,9 @@ const locker = new Locker({
 })
 
 // Listing
-describe('List existing secrets and environments using synchronized method', () => {
+describe('List existing secrets and environments using synchronized method', function () {
+  this.timeout(10000)
+
   let testSecret: Secret
   let testEnv: Environment
 

@@ -7,6 +7,7 @@ import { LogLevel } from '../src/abstraction'
 require('dotenv').config()
 
 /**
+ * Functional testing
  * These tests require an existing project with 1 secret named first (All) and 1 env named init
  * Because a SDK doesn't have permission to delete --> no way to clean up
  */
@@ -24,7 +25,9 @@ const locker = new Locker({
 })
 
 // Listing
-describe('List existing secrets and environments', () => {
+describe('List existing secrets and environments', function () {
+  this.timeout(10000)
+
   let testSecret: Secret
   let testEnv: Environment
 
@@ -75,7 +78,9 @@ describe('List existing secrets and environments', () => {
 })
 
 // Create and update env
-describe('Create new and update env', () => {
+describe('Create new and update env', function () {
+  this.timeout(10000)
+
   it('create environment', async () => {
     const payload = {
       name: 'test1',
@@ -96,7 +101,9 @@ describe('Create new and update env', () => {
 })
 
 // Creata and update secret
-describe('Create new and update secret', () => {
+describe('Create new and update secret', function () {
+  this.timeout(10000)
+
   it('create secret', async () => {
     const payload = {
       key: 'test1',

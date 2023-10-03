@@ -6,6 +6,10 @@ import { LogLevel } from '../src/abstraction'
 
 require('dotenv').config()
 
+/**
+ * Test with readonly access key
+ */
+
 const accessKey = process.env.ACCESS_KEY_READ_ONLY || ''
 const [accessKeyId, accessKeySecret] = accessKey.split(':')
 const locker = new Locker({
@@ -18,7 +22,9 @@ const locker = new Locker({
   logLevel: LogLevel.ERROR,
 })
 // Listing
-describe('List existing secrets and environments with readonly key', () => {
+describe('List existing secrets and environments with readonly key', function () {
+  this.timeout(10000)
+
   let testSecret: Secret
 
   it('list secrets', async () => {

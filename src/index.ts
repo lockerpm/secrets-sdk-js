@@ -11,6 +11,7 @@ export class Locker implements ILockerSecret {
   accessKeySecret: string
   executor: Executor
   headers?: { [key: string]: string }
+  unsafe?: boolean | undefined
   logger: Logger
 
   constructor(options: {
@@ -18,15 +19,18 @@ export class Locker implements ILockerSecret {
     accessKeySecret: string
     apiBase?: string
     headers?: { [key: string]: string }
+    unsafe?: boolean
     logLevel?: LogLevel
   }) {
-    const { accessKeyId, accessKeySecret, apiBase, headers, logLevel } = options
+    const { accessKeyId, accessKeySecret, apiBase, headers, unsafe, logLevel } =
+      options
     this.accessKeyId = accessKeyId
     this.accessKeySecret = accessKeySecret
     this.apiBase = apiBase || 'https://secrets-core.locker.io'
     this.headers = headers
     this.logger = new Logger(logLevel || LogLevel.ERROR)
     this.executor = new BinaryExecutor(this.logger)
+    this.unsafe = unsafe
   }
 
   // ---------------- SECRET ----------------
@@ -191,6 +195,7 @@ export class Locker implements ILockerSecret {
         accessKeySecret: this.accessKeySecret,
         apiBase: this.apiBase,
         headers: this.headers,
+        unsafe: this.unsafe,
       })
     } catch (error) {
       throw Converter.toError((error as any).toString())
@@ -210,6 +215,7 @@ export class Locker implements ILockerSecret {
         accessKeySecret: this.accessKeySecret,
         apiBase: this.apiBase,
         headers: this.headers,
+        unsafe: this.unsafe,
       })
     } catch (error) {
       throw Converter.toError((error as any).toString())
