@@ -52,9 +52,7 @@ yarn add lockerpm
 
 The SDK needs to be configured with your access key which is available in your Locker Secret Dashboard. 
 Initialize the `accessKeyId` and `accessKeySecret` to their value. 
-You also need to set `apiBase` value (default is `https://secrets-core.locker.io`).
-
-If you need to set your custom headers, you can set the `headers` value in the params:
+You also need to set `apiBase` value (default value is `https://secrets-core.locker.io`).
 
 ```js
 import { Locker } from 'lockerpm'
@@ -62,13 +60,21 @@ import { Locker } from 'lockerpm'
 const locker = new Locker({
   accessKeyId: '<your access key id>',
   accessKeySecret: '<your access key secret>',
-  apiBase: '<your api base>',
-  // optional
-  headers: {
-    '<header name>': '<value>'
-  }
+  apiBase: '<your api base>'
 })
 ```
+
+All initialization options are listed below:
+
+| Key                   | Description                              | Type                                  | Required |
+| --------------------- | ---------------------------------------- | ------------------------------------- | :--:     |
+| accessKeyId           | Your access key id                       | `string`                              | ✅       | 
+| accessKeySecret       | Your access key secret                   | `string`                              | ✅       | 
+| apiBase               | Your server base API URL, default value is `https://secrets-core.locker.io` | `string` | ❌       | 
+| headers               | Custom headers for API calls             | `{[header: string]: string}`          | ❌       | 
+| unsafe                | Set TLS to unsafe if you use a server with self-signed certificate, default value is `false`   | `boolean` | ❌       | 
+| logLevel              | Refer to [Logging](#logging), default value is `1`  | `number`                         | ❌       | 
+
 
 Now, you can use SDK to get or set values:
 
