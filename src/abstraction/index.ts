@@ -3,6 +3,7 @@ export interface ILockerSecret {
   accessKeyId: string
   accessKeySecret: string
   headers?: { [key: string]: string }
+  unsafe?: boolean
 
   /**
    * List all secrets

@@ -7,6 +7,7 @@ import { LogLevel } from '../src/abstraction'
 require('dotenv').config()
 
 /**
+ * Functional testing
  * These tests require an existing project with 1 secret named first (All) and 1 env named init
  * Because a SDK doesn't have permission to delete --> no way to clean up
  */
@@ -24,7 +25,9 @@ const locker = new Locker({
 })
 
 // Listing
-describe('List existing secrets and environments', () => {
+describe('List existing secrets and environments', function () {
+  this.timeout(10000)
+
   let testSecret: Secret
   let testEnv: Environment
 
@@ -75,7 +78,9 @@ describe('List existing secrets and environments', () => {
 })
 
 // Create and update env
-describe('Create new and update env', () => {
+describe('Create new and update env', function () {
+  this.timeout(10000)
+
   it('create environment', async () => {
     const payload = {
       name: 'test1',
@@ -96,11 +101,13 @@ describe('Create new and update env', () => {
 })
 
 // Creata and update secret
-describe('Create new and update secret', () => {
+describe('Create new and update secret', function () {
+  this.timeout(10000)
+
   it('create secret', async () => {
     const payload = {
       key: 'test1',
-      value: 'abc',
+      value: '1',
       environmentName: 'test1',
     }
     const secret = await locker.create(payload)
@@ -112,7 +119,7 @@ describe('Create new and update secret', () => {
   it('create secret with duplicated key', async () => {
     const payload = {
       key: 'test1',
-      value: 'another value',
+      value: '2',
       environmentName: 'test1',
     }
     let res: any
@@ -127,7 +134,7 @@ describe('Create new and update secret', () => {
   it('create secret with invalid env', async () => {
     const payload = {
       key: 'test2',
-      value: 'new value',
+      value: '3',
       environmentName: 'not existed',
     }
     let res: any
@@ -142,7 +149,7 @@ describe('Create new and update secret', () => {
   it('create secret with duplicated key but different env', async () => {
     const payload = {
       key: 'test1',
-      value: 'another value',
+      value: '4',
       environmentName: 'init',
     }
     const secret = await locker.create(payload)
@@ -151,13 +158,35 @@ describe('Create new and update secret', () => {
     assert.equal(secret.environmentName, payload.environmentName)
   })
 
-  it('edit secret', async () => {
+  it('edit secret value', async () => {
     const payload = {
-      value: 'a new new value',
-      environmentName: 'init',
+      value: '5',
+      environmentName: 'test1',
     }
     const secret = await locker.modify('test1', 'test1', payload)
     assert.equal(secret.value, payload.value)
-    assert.equal(secret.environmentName, payload.environmentName)
+  })
+
+  it('edit secret environment but there is another secret with the same name in that environment', async () => {
+    const payload = {
+      value: '6',
+      environmentName: 'init',
+    }
+    let res: any
+    try {
+      res = await locker.modify('test1', 'test1', payload)
+    } catch (e) {
+      res = e
+    }
+    assert.instanceOf(res, Error)
+  })
+
+  it('edit secret environment', async () => {
+    const payload = {
+      value: '7',
+    }
+    const secret = await locker.modify('test1', 'init', payload)
+    assert.equal(secret.value, payload.value)
+    assert.equal(secret.environmentName, '')
   })
 })

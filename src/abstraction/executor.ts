@@ -20,6 +20,7 @@ export type CommandParams = {
   env?: string
   data?: { [key: string]: any }
   headers?: { [key: string]: any }
+  unsafe?: boolean
 }
 
 export interface Executor {

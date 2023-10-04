@@ -5,6 +5,10 @@ import { LogLevel } from '../src/abstraction'
 
 require('dotenv').config()
 
+/**
+ * Test with invalid access key
+ */
+
 const accessKey = process.env.ACCESS_KEY_INVALID || ''
 const [accessKeyId, accessKeySecret] = accessKey.split(':')
 const locker = new Locker({
