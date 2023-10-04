@@ -1,0 +1,12 @@
+stages:
+  - build
+
+build:
+  stage: build
+  script:
+    - cystack-deployer
+  tags:
+    - cs_newgen
+  only:
+    - release
+    - tags
