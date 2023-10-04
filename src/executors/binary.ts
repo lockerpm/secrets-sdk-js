@@ -113,6 +113,7 @@ export class BinaryExecutor implements Executor {
       env,
       data,
       headers,
+      unsafe,
     } = obj
     let command = `${target} ${action} --access-key-id "${accessKeyId}" --access-key-secret "${accessKeySecret}" --api-base ${apiBase} --agent "${this._agent}" --verbose`
     if (name) {
@@ -124,6 +125,9 @@ export class BinaryExecutor implements Executor {
     if (data) {
       const dataString = JSON.stringify(JSON.stringify(camelToSnake(data)))
       command += ` --data ${dataString}`
+    }
+    if (unsafe) {
+      command += ' --unsafe'
     }
     if (headers) {
       if (typeof headers !== 'object') {

@@ -7,8 +7,8 @@ module.exports = {
   ignore: [
     // './tests/index.spec.ts',
     './tests/sync.spec.ts',
-    './tests/revoked.spec.ts',
     './tests/invalid.spec.ts',
-    './tests/readonly.spec.ts'
+    './tests/readonly.spec.ts',
+    './tests/test.spec.ts'
   ]
 }
