@@ -9,6 +9,7 @@ module.exports = {
     './tests/sync.spec.ts',
     './tests/invalid.spec.ts',
     './tests/readonly.spec.ts',
-    './tests/test.spec.ts'
+    './tests/test.spec.ts',
+    './tests/example.spec.ts'
   ]
 }

@@ -51,7 +51,7 @@ export class Locker implements ILockerSecret {
     return Converter.toSecrets(res)
   }
 
-  async get(key: string, env?: string, defaultValue?: any) {
+  async get(key: string, env?: string, defaultValue?: string) {
     try {
       const res = await this._execute({
         target: Target.SECRET,
@@ -68,7 +68,7 @@ export class Locker implements ILockerSecret {
     }
   }
 
-  getSync(key: string, env?: string, defaultValue?: any) {
+  getSync(key: string, env?: string, defaultValue?: string) {
     try {
       const res = this._executeSync({
         target: Target.SECRET,

@@ -58,8 +58,12 @@ describe('List existing secrets and environments', function () {
   })
 
   it('get invalid secret with default value', async () => {
-    const value = await locker.get('a key that not yet created', undefined, 123)
-    assert.equal(value, 123)
+    const value = await locker.get(
+      'a key that not yet created',
+      undefined,
+      '123'
+    )
+    assert.equal(value, '123')
   })
 
   it('get 1 environment', async () => {
