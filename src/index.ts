@@ -26,7 +26,7 @@ export class Locker implements ILockerSecret {
       options
     this.accessKeyId = accessKeyId
     this.accessKeySecret = accessKeySecret
-    this.apiBase = apiBase || 'https://secrets-core.locker.io'
+    this.apiBase = apiBase || 'https://api.locker.io/locker_secrets'
     this.headers = headers
     this.logger = new Logger(logLevel || LogLevel.ERROR)
     this.executor = new BinaryExecutor(this.logger)
