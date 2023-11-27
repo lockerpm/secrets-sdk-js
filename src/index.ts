@@ -26,7 +26,7 @@ export class Locker implements ILockerSecret {
       options
     this.accessKeyId = accessKeyId
     this.accessKeySecret = accessKeySecret
-    this.apiBase = apiBase || 'https://secrets-core.locker.io'
+    this.apiBase = apiBase || 'https://api.locker.io/locker_secrets'
     this.headers = headers
     this.logger = new Logger(logLevel || LogLevel.ERROR)
     this.executor = new BinaryExecutor(this.logger)
@@ -51,7 +51,7 @@ export class Locker implements ILockerSecret {
     return Converter.toSecrets(res)
   }
 
-  async get(key: string, env?: string, defaultValue?: any) {
+  async get(key: string, env?: string, defaultValue?: string) {
     try {
       const res = await this._execute({
         target: Target.SECRET,
@@ -68,7 +68,7 @@ export class Locker implements ILockerSecret {
     }
   }
 
-  getSync(key: string, env?: string, defaultValue?: any) {
+  getSync(key: string, env?: string, defaultValue?: string) {
     try {
       const res = this._executeSync({
         target: Target.SECRET,
