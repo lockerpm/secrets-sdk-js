@@ -5,14 +5,18 @@ import { BinaryExecutor } from './executors/binary'
 import { Converter } from './utils/converter'
 import { Logger } from './utils/logger'
 
+const DEFAULT_BASE_API = 'https://api.locker.io/locker_secrets'
+const DEFAULT_LOG_LEVEL = LogLevel.ERROR
+
 export class Locker implements ILockerSecret {
   apiBase: string
   accessKeyId: string
   accessKeySecret: string
-  executor: Executor
   headers?: { [key: string]: string }
   unsafe?: boolean | undefined
-  logger: Logger
+
+  private logger: Logger
+  private executor: Executor
 
   constructor(options: {
     accessKeyId: string
@@ -26,9 +30,9 @@ export class Locker implements ILockerSecret {
       options
     this.accessKeyId = accessKeyId
     this.accessKeySecret = accessKeySecret
-    this.apiBase = apiBase || 'https://api.locker.io/locker_secrets'
+    this.apiBase = apiBase || DEFAULT_BASE_API
     this.headers = headers
-    this.logger = new Logger(logLevel || LogLevel.ERROR)
+    this.logger = new Logger(logLevel || DEFAULT_LOG_LEVEL)
     this.executor = new BinaryExecutor(this.logger)
     this.unsafe = unsafe
   }

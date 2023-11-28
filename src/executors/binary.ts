@@ -9,9 +9,8 @@ import { Logger } from '../utils/logger'
 export class BinaryExecutor implements Executor {
   logger: Logger
 
-  _binaryPath: string
-
-  _agent: string
+  private _binaryPath: string
+  private _agent: string
 
   constructor(logger: Logger) {
     this.logger = logger
