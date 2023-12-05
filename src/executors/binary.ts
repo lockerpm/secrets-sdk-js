@@ -1,5 +1,5 @@
 import { CommandParams, Executor } from '../abstraction/executor'
-import { execSync, exec } from 'child_process'
+import { execFile, execFileSync } from 'child_process'
 import os from 'os'
 import path from 'path'
 import fs from 'fs'
@@ -22,9 +22,9 @@ export class BinaryExecutor implements Executor {
   runCommand(params: CommandParams) {
     return new Promise<string>((resolve, reject) => {
       try {
-        const command = `${this._binaryPath} ${this._objToCommand(params)}`
-        exec(command, (error, stdout, stderr) => {
-          this.logger.debug(command)
+        const { rawCommand, paramsList } = this._objToCommand(params)
+        this.logger.debug(rawCommand)
+        execFile(this._binaryPath, paramsList, (error, stdout, stderr) => {
           this.logger.debug(stderr || stdout)
           if (error) {
             reject(stderr || stdout)
@@ -40,12 +40,13 @@ export class BinaryExecutor implements Executor {
 
   runCommandSync(params: CommandParams) {
     try {
-      const command = `${this._binaryPath} ${this._objToCommand(params)}`
-      const res = execSync(command).toString()
-      this.logger.debug(command)
+      const { rawCommand, paramsList } = this._objToCommand(params)
+      this.logger.debug(rawCommand)
+      const res = execFileSync(this._binaryPath, paramsList).toString()
       this.logger.debug(res)
       return res
     } catch (error) {
+      console.log(error)
       throw error
     }
   }
@@ -114,19 +115,40 @@ export class BinaryExecutor implements Executor {
       headers,
       unsafe,
     } = obj
+    // Raw command
     let command = `${target} ${action} --access-key-id "${accessKeyId}" --access-key-secret "${accessKeySecret}" --api-base ${apiBase} --agent "${this._agent}" --verbose`
+
+    // Params list broken from raw command
+    const paramsList = [
+      target,
+      action,
+      '--access-key-id',
+      accessKeyId,
+      '--access-key-secret',
+      accessKeySecret,
+      '--api-base',
+      accessKeySecret,
+      '--agent',
+      accessKeySecret,
+      '--verbose',
+    ]
+
     if (name) {
       command += ` --name "${name}"`
+      paramsList.push('--name', name)
     }
     if (env) {
       command += ` --env "${env}"`
+      paramsList.push('--env', env)
     }
     if (data) {
-      const dataString = JSON.stringify(JSON.stringify(camelToSnake(data)))
-      command += ` --data ${dataString}`
+      const dataString = JSON.stringify(camelToSnake(data))
+      command += ` --data ${JSON.stringify(dataString)}`
+      paramsList.push('--data', dataString)
     }
     if (unsafe) {
       command += ' --unsafe'
+      paramsList.push('--unsafe')
     }
     if (headers) {
       if (typeof headers !== 'object') {
@@ -136,7 +158,8 @@ export class BinaryExecutor implements Executor {
         .map((item) => `${item[0]}:${item[1]}`)
         .join(',')
       command += ` --headers "${headersString}"`
+      paramsList.push('--headers', headersString)
     }
-    return command
+    return { rawCommand: command, paramsList }
   }
 }
