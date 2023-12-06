@@ -1,7 +1,6 @@
 import 'mocha'
 import { assert } from 'chai'
-import { Locker } from '../index'
-import { LogLevel } from '../src/abstraction'
+import { locker } from './mocks'
 
 require('dotenv').config()
 
@@ -11,19 +10,12 @@ require('dotenv').config()
 
 const accessKey = process.env.ACCESS_KEY_INVALID || ''
 const [accessKeyId, accessKeySecret] = accessKey.split(':')
-const locker = new Locker({
-  accessKeyId,
-  accessKeySecret,
-  headers: {
-    'cf-access-client-id': process.env.CF_ACCESS_CLIENT_ID || '',
-    'cf-access-client-secret': process.env.CF_ACCESS_CLIENT_SECRET || '',
-  },
-  logLevel: LogLevel.ERROR,
-})
+locker.accessKeyId = accessKeyId
+locker.accessKeySecret = accessKeySecret
 
 // Listing
 describe('List existing secrets and environments with invalid key', () => {
-  it('list secrets', async () => {
+  it('list secrets and expect error', async () => {
     let res: any
     try {
       res = await locker.list()
@@ -39,14 +31,14 @@ describe('List existing secrets and environments with invalid key', () => {
   })
 
   it('get a secret with default value', async () => {
-    const value = await locker.get('secret 1', undefined, 456)
-    assert.equal(value, 456)
+    const value = await locker.get('secret 1', undefined, '456')
+    assert.equal(value, '456')
   })
 })
 
 // Create and update env
 describe('Update env with invalid key', () => {
-  it('edit environment', async () => {
+  it('edit environment and expect error', async () => {
     let res: any
     const payload = {
       externalUrl: '123123123',

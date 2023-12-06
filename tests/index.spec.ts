@@ -1,28 +1,13 @@
 import 'mocha'
 import { assert } from 'chai'
-import { Locker } from '../index'
 import { Secret, Environment } from '../src/resources'
-import { LogLevel } from '../src/abstraction'
-
-require('dotenv').config()
+import { locker } from './mocks'
 
 /**
  * Functional testing
  * These tests require an existing project with 1 secret named first (All) and 1 env named init
  * Because a SDK doesn't have permission to delete --> no way to clean up
  */
-
-const accessKey = process.env.ACCESS_KEY || ''
-const [accessKeyId, accessKeySecret] = accessKey.split(':')
-const locker = new Locker({
-  accessKeyId,
-  accessKeySecret,
-  headers: {
-    'cf-access-client-id': process.env.CF_ACCESS_CLIENT_ID || '',
-    'cf-access-client-secret': process.env.CF_ACCESS_CLIENT_SECRET || '',
-  },
-  logLevel: LogLevel.ERROR,
-})
 
 // Listing
 describe('List existing secrets and environments', function () {
@@ -72,7 +57,7 @@ describe('List existing secrets and environments', function () {
     assert.equal(env._raw.id, testEnv._raw.id)
   })
 
-  it('get invalid environment', async () => {
+  it('get invalid environment and expect error', async () => {
     try {
       await locker.getEnvironment('an env that not yet created')
     } catch (e) {
@@ -95,6 +80,20 @@ describe('Create new and update env', function () {
     assert.equal(env.externalUrl, payload.externalUrl)
   })
 
+  it('create environment with the exact name and expect error', async () => {
+    const payload = {
+      name: 'test1',
+      externalUrl: '123123',
+    }
+    let res: any
+    try {
+      res = await locker.createEnvironment(payload)
+    } catch (error) {
+      res = error
+    }
+    assert.instanceOf(res, Error)
+  })
+
   it('edit environment', async () => {
     const payload = {
       externalUrl: '123123123',
@@ -108,7 +107,32 @@ describe('Create new and update env', function () {
 describe('Create new and update secret', function () {
   this.timeout(10000)
 
-  it('create secret', async () => {
+  it('create secret with env All', async () => {
+    const payload = {
+      key: 'all',
+      value: 'a',
+    }
+    const secret = await locker.create(payload)
+    assert.equal(secret.key, payload.key)
+    assert.equal(secret.value, payload.value)
+    assert.equal(secret.environmentName, '')
+  })
+
+  it('create secret with env All again and expect error', async () => {
+    const payload = {
+      key: 'all',
+      value: 'a',
+    }
+    let res: any
+    try {
+      res = await locker.create(payload)
+    } catch (error) {
+      res = error
+    }
+    assert.instanceOf(res, Error)
+  })
+
+  it('create secret with env', async () => {
     const payload = {
       key: 'test1',
       value: '1',
@@ -120,7 +144,7 @@ describe('Create new and update secret', function () {
     assert.equal(secret.environmentName, payload.environmentName)
   })
 
-  it('create secret with duplicated key', async () => {
+  it('create secret with duplicated key in the same env and expect error', async () => {
     const payload = {
       key: 'test1',
       value: '2',
@@ -135,7 +159,7 @@ describe('Create new and update secret', function () {
     assert.instanceOf(res, Error)
   })
 
-  it('create secret with invalid env', async () => {
+  it('create secret with invalid env and expect error', async () => {
     const payload = {
       key: 'test2',
       value: '3',
@@ -171,7 +195,7 @@ describe('Create new and update secret', function () {
     assert.equal(secret.value, payload.value)
   })
 
-  it('edit secret environment but there is another secret with the same name in that environment', async () => {
+  it('edit secret environment but there is another secret with the same name in that environment and expect error', async () => {
     const payload = {
       value: '6',
       environmentName: 'init',
