@@ -1,26 +1,13 @@
 import 'mocha'
 import { assert } from 'chai'
-import { Locker } from '../index'
 import { Secret, Environment } from '../src/resources'
-import { LogLevel } from '../src/abstraction'
+import { locker } from './mocks'
 
 require('dotenv').config()
 
 /**
  * Test synchronized functions
  */
-
-const accessKey = process.env.ACCESS_KEY || ''
-const [accessKeyId, accessKeySecret] = accessKey.split(':')
-const locker = new Locker({
-  accessKeyId,
-  accessKeySecret,
-  headers: {
-    'cf-access-client-id': process.env.CF_ACCESS_CLIENT_ID || '',
-    'cf-access-client-secret': process.env.CF_ACCESS_CLIENT_SECRET || '',
-  },
-  logLevel: LogLevel.ERROR,
-})
 
 // Listing
 describe('List existing secrets and environments using synchronized method', function () {
@@ -56,8 +43,8 @@ describe('List existing secrets and environments using synchronized method', fun
   })
 
   it('get invalid secret with default value', () => {
-    const value = locker.getSync('a key that not yet created', undefined, 123)
-    assert.equal(value, 123)
+    const value = locker.getSync('a key that not yet created', undefined, '123')
+    assert.equal(value, '123')
   })
 
   it('get 1 environment', () => {
@@ -66,7 +53,7 @@ describe('List existing secrets and environments using synchronized method', fun
     assert.equal(env._raw.id, testEnv._raw.id)
   })
 
-  it('get invalid environment', () => {
+  it('get invalid environment and expect error', () => {
     try {
       locker.getEnvironmentSync('an env that not yet created')
     } catch (e) {
