@@ -14,5 +14,5 @@ export const locker = new Locker({
     'cf-access-client-secret': process.env.CF_ACCESS_CLIENT_SECRET || '',
   },
   apiBase: process.env.BASE_API,
-  logLevel: LogLevel.DEBUG,
+  logLevel: LogLevel.ERROR,
 })

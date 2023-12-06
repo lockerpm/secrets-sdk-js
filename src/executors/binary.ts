@@ -127,9 +127,9 @@ export class BinaryExecutor implements Executor {
       '--access-key-secret',
       accessKeySecret,
       '--api-base',
-      accessKeySecret,
+      apiBase,
       '--agent',
-      accessKeySecret,
+      this._agent,
       '--verbose',
     ]
 
