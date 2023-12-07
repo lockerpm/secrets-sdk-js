@@ -46,7 +46,6 @@ export class BinaryExecutor implements Executor {
       this.logger.debug(res)
       return res
     } catch (error) {
-      console.log(error)
       throw error
     }
   }
@@ -55,32 +54,35 @@ export class BinaryExecutor implements Executor {
 
   private _chooseBinary() {
     const platform = os.platform()
-    const dirs = this._getSrcPath()
+    const dirs = this._getBasePath()
     let filePath = `${dirs.join(path.sep)}${path.sep}bin${path.sep}`
 
     switch (platform) {
       case 'darwin':
-        filePath += 'locker_secret_mac'
+        filePath += 'locker_secret'
         break
       case 'win32':
         filePath += 'locker_secret.exe'
         break
       default:
-        filePath += 'locker_secret_linux'
+        filePath += 'locker_secret'
     }
     return filePath
   }
 
   private _getAgent() {
-    const dirs = this._getSrcPath()
-    dirs.pop()
+    const dirs = this._getBasePath()
+    if (dirs.includes('lib')) {
+      dirs.pop()
+    }
     let packageJSONPath = `${dirs.join(path.sep)}${path.sep}package.json`
     const packageJSON = require(packageJSONPath)
     return `NodeJs - ${packageJSON.version}`
   }
 
-  private _getSrcPath() {
+  private _getBasePath() {
     const dirs = __dirname.split(path.sep)
+    dirs.pop()
     dirs.pop()
     if (dirs.includes('cjs') || dirs.includes('esm')) {
       dirs.pop()

@@ -1,6 +1,6 @@
 {
   "name": "lockerpm",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "description": "Locker Secrets SDK for NodeJS",
   "exports": {
     ".": {
@@ -17,16 +17,17 @@
   "types": "./lib/cjs/types/index.d.ts",
   "main": "./lib/cjs/index.js",
   "files": [
-    "lib/**/*"
+    "lib/**/*",
+    "setup.js"
   ],
   "scripts": {
     "clean": "rm -rf ./lib",
-    "build": "npm run clean && npm run build:esm && npm run build:cjs && npm run copy-bin",
+    "build": "npm run clean && npm run build:esm && npm run build:cjs",
     "build:esm": "tsc -p ./configs/tsconfig.esm.json && mv lib/esm/index.js lib/esm/index.mjs",
     "build:cjs": "tsc -p ./configs/tsconfig.cjs.json",
-    "copy-bin": "cp -r ./src/bin ./lib/bin",
     "prepack": "npm run build",
-    "test": "mocha"
+    "test": "mocha",
+    "postinstall": "node setup.js"
   },
   "author": "duchm",
   "license": "ISC",

@@ -108,3 +108,5 @@ dist
 lib
 *.tgz
 .vscode
+
+bin/
