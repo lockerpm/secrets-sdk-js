@@ -51,15 +51,15 @@ yarn add lockerpm
 ### Set up access key
 
 The SDK needs to be configured with your access key which is available in your Locker Secret Dashboard. 
-Initialize the `accessKeyId` and `accessKeySecret` to their value. 
-You also need to set `apiBase` value (default value is `https://secrets-core.locker.io`).
+Initialize the `accessKeyId` and `secretAccessKey` to their value. 
+You also need to set `apiBase` value (default value is `https://api.locker.io/locker_secrets`).
 
 ```js
 import { Locker } from 'lockerpm'
 
 const locker = new Locker({
   accessKeyId: '<your access key id>',
-  accessKeySecret: '<your access key secret>',
+  secretAccessKey: '<your access key secret>',
   apiBase: '<your api base>'
 })
 ```
@@ -69,8 +69,8 @@ All initialization options are listed below:
 | Key                   | Description                              | Type                                  | Required |
 | --------------------- | ---------------------------------------- | ------------------------------------- | :--:     |
 | accessKeyId           | Your access key id                       | `string`                              | ✅       | 
-| accessKeySecret       | Your access key secret                   | `string`                              | ✅       | 
-| apiBase               | Your server base API URL, default value is `https://secrets-core.locker.io` | `string` | ❌       | 
+| secretAccessKey       | Your access key secret                   | `string`                              | ✅       | 
+| apiBase               | Your server base API URL, default value is `https://api.locker.io/locker_secrets` | `string` | ❌       | 
 | headers               | Custom headers for API calls             | `{[header: string]: string}`          | ❌       | 
 | unsafe                | Set TLS to unsafe if you use a server with self-signed certificate, default value is `false`   | `boolean` | ❌       | 
 | logLevel              | Refer to [Logging](#logging), default value is `1`  | `number`                         | ❌       | 

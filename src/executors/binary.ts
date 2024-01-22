@@ -107,7 +107,7 @@ export class BinaryExecutor implements Executor {
   private _objToCommand = (obj: CommandParams) => {
     const {
       accessKeyId,
-      accessKeySecret,
+      secretAccessKey,
       apiBase,
       target,
       action,
@@ -118,7 +118,7 @@ export class BinaryExecutor implements Executor {
       unsafe,
     } = obj
     // Raw command
-    let command = `${target} ${action} --access-key-id "${accessKeyId}" --access-key-secret "${accessKeySecret}" --api-base ${apiBase} --agent "${this._agent}" --verbose`
+    let command = `${target} ${action} --access-key-id "${accessKeyId}" --secret-access-key "${secretAccessKey}" --api-base ${apiBase} --agent "${this._agent}" --verbose`
 
     // Params list broken from raw command
     const paramsList = [
@@ -126,8 +126,8 @@ export class BinaryExecutor implements Executor {
       action,
       '--access-key-id',
       accessKeyId,
-      '--access-key-secret',
-      accessKeySecret,
+      '--secret-access-key',
+      secretAccessKey,
       '--api-base',
       apiBase,
       '--agent',

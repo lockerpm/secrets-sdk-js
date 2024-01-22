@@ -14,7 +14,7 @@ export type CommandParams = {
   target: Target
   action: Action
   accessKeyId: string
-  accessKeySecret: string
+  secretAccessKey: string
   apiBase: string
   name?: string
   env?: string

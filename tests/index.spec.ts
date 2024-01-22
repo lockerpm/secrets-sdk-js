@@ -9,6 +9,15 @@ import { locker } from './mocks'
  * Because a SDK doesn't have permission to delete --> no way to clean up
  */
 
+// describe('Setup', function () {
+//   this.timeout(10000)
+
+//   it('setup', async () => {
+//     await locker.create({ key: 'first', value: '123' })
+//     await locker.createEnvironment({ name: 'init', externalUrl: '*' })
+//   })
+// })
+
 // Listing
 describe('List existing secrets and environments', function () {
   this.timeout(10000)

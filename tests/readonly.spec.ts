@@ -10,9 +10,9 @@ require('dotenv').config()
  */
 
 const accessKey = process.env.ACCESS_KEY_READ_ONLY || ''
-const [accessKeyId, accessKeySecret] = accessKey.split(':')
+const [accessKeyId, secretAccessKey] = accessKey.split(':')
 locker.accessKeyId = accessKeyId
-locker.accessKeySecret = accessKeySecret
+locker.secretAccessKey = secretAccessKey
 
 // Listing
 describe('List existing secrets and environments with readonly key', function () {
