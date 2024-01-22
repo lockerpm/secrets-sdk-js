@@ -8,7 +8,7 @@ require('dotenv').config()
 
 const locker = new Locker({
   accessKeyId: process.env.CLOUD_ACCESS_KEY_ID || '',
-  accessKeySecret: process.env.CLOUD_ACCESS_KEY_SECRET || '',
+  secretAccessKey: process.env.CLOUD_ACCESS_KEY_SECRET || '',
 })
 
 async function saveWallet(address: string, privateKey: string) {

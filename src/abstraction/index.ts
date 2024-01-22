@@ -1,7 +1,7 @@
 export interface ILockerSecret {
   apiBase: string
   accessKeyId: string
-  accessKeySecret: string
+  secretAccessKey: string
   headers?: { [key: string]: string }
   unsafe?: boolean
 
@@ -100,7 +100,7 @@ export interface ILockerSecret {
    */
   createEnvironment: (data: {
     name: string
-    externalUrl?: string
+    externalUrl: string
     description?: string
   }) => Promise<IEnvironment>
 
@@ -112,7 +112,7 @@ export interface ILockerSecret {
    */
   modifyEnvironment: (
     name: string,
-    data: { externalUrl?: string; description?: string }
+    data: { externalUrl: string; description?: string }
   ) => Promise<IEnvironment>
 }
 
@@ -125,7 +125,7 @@ export interface ISecret {
 
 export interface IEnvironment {
   name: string
-  externalUrl?: string
+  externalUrl: string
   description?: string
 }
 
