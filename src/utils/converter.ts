@@ -46,7 +46,7 @@ export class Converter {
 const extractDataFromOutput = (output: string) => {
   try {
     if (output.trim()) {
-      return JSON.parse(output)
+      return JSON.parse(output.trim())
     }
   } catch (error) {
     throw Error('Invalid output')
