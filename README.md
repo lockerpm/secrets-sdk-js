@@ -37,13 +37,13 @@ The documentation will be updated later.
 Install from npm:
 
 ```bash
-npm install -S lockerpm
+npm install -S @lockerpm/secrets
 ```
 
 Install from yarn:
 
 ```bash
-yarn add lockerpm
+yarn add @lockerpm/secrets
 ```
 
 ## Usages
@@ -55,7 +55,7 @@ Initialize the `accessKeyId` and `secretAccessKey` to their value.
 You also need to set `apiBase` value (default value is `https://api.locker.io/locker_secrets`).
 
 ```js
-import { Locker } from 'lockerpm'
+import { Locker } from '@lockerpm/secrets'
 
 const locker = new Locker({
   accessKeyId: '<your access key id>',
@@ -92,6 +92,11 @@ const secretValue3 = await locker.get('SECRET_NAME_3', 'ENVIRONMENT', 'default v
 // or
 const secretValue3 = locker.getSync('SECRET_NAME_3', 'ENVIRONMENT', 'default value')
 
+// Or get a secret object instead
+const secret1 = await locker.retrieve('SECRET_NAME_1')
+// or
+const secret1 = locker.retrieveSync('SECRET_NAME_1')
+
 // Create new secret
 const secret = await locker.create({
   key: 'key',
@@ -102,7 +107,7 @@ const secret = await locker.create({
 // Update secret
 const secret = await locker.modify('SECRET', 'ENVIRONMENT', {
   value: 'value',
-  environmentName: 'environmentName'
+  environmentName: 'environmentName'  // set to undefined for the enviroment ALL
 })
 
 // List environments
