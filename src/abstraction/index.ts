@@ -26,7 +26,7 @@ export interface ILockerSecret {
    */
   get: (
     key: string,
-    env?: string,
+    env?: string | null,
     defaultValue?: any
   ) => Promise<string | undefined>
 
@@ -37,7 +37,27 @@ export interface ILockerSecret {
    * @param defaultValue
    * @returns
    */
-  getSync: (key: string, env?: string, defaultValue?: any) => string | undefined
+  getSync: (
+    key: string,
+    env?: string | null,
+    defaultValue?: any
+  ) => string | undefined
+
+  /**
+   * Get a secret object by key and environment name
+   * @param key
+   * @param env
+   * @returns
+   */
+  retrieve: (key: string, env?: string | null) => Promise<ISecret>
+
+  /**
+   * Get a secret object synchronously by key and environment name
+   * @param key
+   * @param env
+   * @returns
+   */
+  retrieveSync: (key: string, env?: string | null) => ISecret
 
   /**
    * Create a secret
@@ -119,14 +139,14 @@ export interface ILockerSecret {
 export interface ISecret {
   key: string
   value: string
-  description?: string
-  environmentName?: string
+  description: string
+  environmentName: string | null
 }
 
 export interface IEnvironment {
   name: string
   externalUrl: string
-  description?: string
+  description: string
 }
 
 export enum LogLevel {
@@ -145,11 +165,6 @@ export class LockerObj {
       return defaultValue
     }
     // TODO: apply type check here
-    if (typeof key !== typeof this._raw[key]) {
-      throw Error(
-        `Invalid value for ${key}. Expected value but got ${this._raw[key]}`
-      )
-    }
     return this._raw[key]
   }
 }
