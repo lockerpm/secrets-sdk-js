@@ -2,7 +2,7 @@
 
 import 'mocha'
 import { assert } from 'chai'
-import { Locker } from '../index'
+import { Locker } from '../../index'
 
 require('dotenv').config()
 

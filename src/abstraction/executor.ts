@@ -17,7 +17,7 @@ export type CommandParams = {
   secretAccessKey: string
   apiBase: string
   name?: string
-  env?: string
+  env?: string | null
   data?: { [key: string]: any }
   headers?: { [key: string]: any }
   unsafe?: boolean

@@ -1,6 +1,6 @@
 import 'mocha'
 import { assert } from 'chai'
-import { locker } from './mocks'
+import { locker } from '../mocks'
 
 require('dotenv').config()
 

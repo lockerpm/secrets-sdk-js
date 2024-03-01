@@ -55,7 +55,7 @@ export class Locker implements ILockerSecret {
     return Converter.toSecrets(res)
   }
 
-  async get(key: string, env?: string, defaultValue?: string) {
+  async get(key: string, env?: string | null, defaultValue?: string) {
     try {
       const res = await this._execute({
         target: Target.SECRET,
@@ -75,7 +75,7 @@ export class Locker implements ILockerSecret {
     }
   }
 
-  getSync(key: string, env?: string, defaultValue?: string) {
+  getSync(key: string, env?: string | null, defaultValue?: string) {
     try {
       const res = this._executeSync({
         target: Target.SECRET,
@@ -89,6 +89,37 @@ export class Locker implements ILockerSecret {
         this.logger.error(error)
       }
       return defaultValue
+    }
+  }
+
+  async retrieve(key: string, env?: string | null) {
+    try {
+      const res = await this._execute({
+        target: Target.SECRET,
+        action: Action.GET,
+        name: key,
+        env,
+      })
+      if (res.trim() === '[]') {
+        throw new EmptyOutputError()
+      }
+      return Converter.toSecret(res)
+    } catch (error) {
+      throw error
+    }
+  }
+
+  retrieveSync(key: string, env?: string | null) {
+    try {
+      const res = this._executeSync({
+        target: Target.SECRET,
+        action: Action.GET,
+        name: key,
+        env,
+      })
+      return Converter.toSecret(res)
+    } catch (error) {
+      throw error
     }
   }
 

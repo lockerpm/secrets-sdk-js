@@ -3,7 +3,7 @@ import { IEnvironment, LockerObj } from '../abstraction'
 export class Environment extends LockerObj implements IEnvironment {
   name: string = ''
   externalUrl: string = ''
-  description?: string | undefined = ''
+  description: string = ''
 
   constructor(obj: { [key: string]: any }) {
     super(obj)
