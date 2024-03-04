@@ -9,4 +9,4 @@ build:
     - cs_newgen
   only:
     - release
-    - tags
+    - cs_newgen
