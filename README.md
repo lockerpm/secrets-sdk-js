@@ -57,10 +57,11 @@ You also need to set `apiBase` value (default value is `https://api.locker.io/lo
 ```js
 import { Locker } from '@lockerpm/secrets'
 
+// You should not hardcode access key credentials. Instead, load them from environment variables
 const locker = new Locker({
-  accessKeyId: '<your access key id>',
-  secretAccessKey: '<your access key secret>',
-  apiBase: '<your api base>'
+  accessKeyId: process.env.LOCKER_ACCESS_KEY_ID,
+  secretAccessKey: process.env.LOCKER_ACCESS_KEY_SECRET,
+  apiBase: '<your base api url>'
 })
 ```
 
