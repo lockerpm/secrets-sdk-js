@@ -26,7 +26,7 @@ export interface ILockerSecret {
    */
   get: (
     key: string,
-    env?: string | null,
+    env?: string,
     defaultValue?: any
   ) => Promise<string | undefined>
 
@@ -37,11 +37,7 @@ export interface ILockerSecret {
    * @param defaultValue
    * @returns
    */
-  getSync: (
-    key: string,
-    env?: string | null,
-    defaultValue?: any
-  ) => string | undefined
+  getSync: (key: string, env?: string, defaultValue?: any) => string | undefined
 
   /**
    * Get a secret object by key and environment name
@@ -49,7 +45,7 @@ export interface ILockerSecret {
    * @param env
    * @returns
    */
-  retrieve: (key: string, env?: string | null) => Promise<ISecret>
+  retrieve: (key: string, env?: string) => Promise<ISecret>
 
   /**
    * Get a secret object synchronously by key and environment name
@@ -57,7 +53,7 @@ export interface ILockerSecret {
    * @param env
    * @returns
    */
-  retrieveSync: (key: string, env?: string | null) => ISecret
+  retrieveSync: (key: string, env?: string) => ISecret
 
   /**
    * Create a secret

@@ -111,6 +111,7 @@ describe('Create new and update secret', function () {
   it('edit secret environment to <all>', async () => {
     const payload = {
       value: '7',
+      environmentName: '',
     }
     const secret = await locker.modify('test1', 'init', payload)
     assert.equal(secret.value, payload.value)

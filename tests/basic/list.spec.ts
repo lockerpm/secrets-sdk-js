@@ -43,7 +43,7 @@ describe('List existing secrets and environments', function () {
   it('get 1 secret (first - 123 - <all>)', async () => {
     const value = await locker.get(testSecret.key)
     assert.equal(value, testSecret.value)
-    const value2 = await locker.get(testSecret.key, null)
+    const value2 = await locker.get(testSecret.key)
     assert.equal(value2, testSecret.value)
   })
 
@@ -65,7 +65,7 @@ describe('List existing secrets and environments', function () {
     const secret = await locker.retrieve(testSecret.key)
     assert.instanceOf(secret, Secret)
     assert.equal(secret.value, testSecret.value)
-    const secret2 = await locker.retrieve(testSecret.key, null)
+    const secret2 = await locker.retrieve(testSecret.key)
     assert.instanceOf(secret2, Secret)
     assert.equal(secret2.value, testSecret.value)
   })

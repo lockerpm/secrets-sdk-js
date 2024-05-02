@@ -1,9 +1,15 @@
-import { CommandParams, Executor } from '../abstraction/executor'
+import {
+  Action,
+  CommandData,
+  CommandConfig,
+  Executor,
+  Target,
+} from '../abstraction/executor'
 import { execFile, execFileSync } from 'child_process'
 import os from 'os'
 import path from 'path'
 import fs from 'fs'
-import { camelToSnake } from '../utils/helpers'
+import { camelToFlag } from '../utils/helpers'
 import { Logger } from '../utils/logger'
 
 export class BinaryExecutor implements Executor {
@@ -19,10 +25,13 @@ export class BinaryExecutor implements Executor {
     this._grantPermission()
   }
 
-  runCommand(params: CommandParams) {
+  runCommand<T extends Target, A extends Action>(
+    config: CommandConfig,
+    data: CommandData[T][A]
+  ) {
     return new Promise<string>((resolve, reject) => {
       try {
-        const { rawCommand, paramsList } = this._objToCommand(params)
+        const { rawCommand, paramsList } = this._objToCommand(config, data)
         this.logger.debug(rawCommand)
         execFile(this._binaryPath, paramsList, (error, stdout, stderr) => {
           this.logger.debug(stderr || stdout)
@@ -38,9 +47,12 @@ export class BinaryExecutor implements Executor {
     })
   }
 
-  runCommandSync(params: CommandParams) {
+  runCommandSync<T extends Target, A extends Action>(
+    config: CommandConfig,
+    data: CommandData[T][A]
+  ) {
     try {
-      const { rawCommand, paramsList } = this._objToCommand(params)
+      const { rawCommand, paramsList } = this._objToCommand(config, data)
       this.logger.debug(rawCommand)
       const res = execFileSync(this._binaryPath, paramsList).toString()
       this.logger.debug(res)
@@ -104,21 +116,25 @@ export class BinaryExecutor implements Executor {
     }
   }
 
-  private _objToCommand = (obj: CommandParams) => {
+  private _objToCommand<T extends Target, A extends Action>(
+    config: CommandConfig,
+    data: CommandData[T][A]
+  ): {
+    rawCommand: string
+    paramsList: string[]
+  } {
     const {
+      target,
+      action,
       accessKeyId,
       secretAccessKey,
       apiBase,
-      target,
-      action,
-      name,
-      env,
-      data,
       headers,
       unsafe,
-    } = obj
+    } = config
+
     // Raw command
-    let command = `${target} ${action} --access-key-id "${accessKeyId}" --secret-access-key "${secretAccessKey}" --api-base ${apiBase} --agent "${this._agent}" --verbose`
+    let command = `${target} ${action} --access-key-id "${accessKeyId}" --secret-access-key "${secretAccessKey}" --api-base ${apiBase} --agent "${this._agent}" --json`
 
     // Params list broken from raw command
     const paramsList = [
@@ -132,21 +148,21 @@ export class BinaryExecutor implements Executor {
       apiBase,
       '--agent',
       this._agent,
-      '--verbose',
+      '--json',
     ]
 
-    if (name) {
-      command += ` --name "${name}"`
-      paramsList.push('--name', name)
-    }
-    if (env) {
-      command += ` --env "${env}"`
-      paramsList.push('--env', env)
-    }
     if (data) {
-      const dataString = JSON.stringify(camelToSnake(data))
-      command += ` --data ${JSON.stringify(dataString)}`
-      paramsList.push('--data', dataString)
+      const flagObj = camelToFlag(data)
+      Object.keys(flagObj).forEach((k) => {
+        let value = flagObj[k]
+        if (value === '') {
+          value = '""'
+        }
+        if (value !== undefined) {
+          command += ` --${k} ${value}`
+          paramsList.push(`--${k}`, value)
+        }
+      })
     }
     if (unsafe) {
       command += ' --unsafe'
