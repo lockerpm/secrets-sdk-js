@@ -106,9 +106,9 @@ export class BinaryExecutor implements Executor {
   private _grantPermission() {
     try {
       try {
-        fs.accessSync(this._binaryPath, 0o555)
+        fs.accessSync(this._binaryPath, 0o755)
       } catch (e) {
-        fs.chmodSync(this._binaryPath, 0o555)
+        fs.chmodSync(this._binaryPath, 0o755)
       }
     } catch (error) {
       this.logger.error(error)
