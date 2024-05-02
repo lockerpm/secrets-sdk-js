@@ -1,6 +1,12 @@
 import { ILockerSecret, LogLevel } from './abstraction'
 import { EmptyOutputError } from './abstraction/errors'
-import { Action, CommandParams, Executor, Target } from './abstraction/executor'
+import {
+  Action,
+  CommandConfig,
+  CommandData,
+  Executor,
+  Target,
+} from './abstraction/executor'
 import { BinaryExecutor } from './executors/binary'
 import { Converter } from './utils/converter'
 import { Logger } from './utils/logger'
@@ -40,29 +46,39 @@ export class Locker implements ILockerSecret {
   // ---------------- SECRET ----------------
 
   async list() {
-    const res = await this._execute({
-      target: Target.SECRET,
-      action: Action.LIST,
-    })
+    const res = await this._execute<Target.SECRET, Action.LIST>(
+      {
+        target: Target.SECRET,
+        action: Action.LIST,
+      },
+      undefined
+    )
     return Converter.toSecrets(res)
   }
 
   listSync() {
-    const res = this._executeSync({
-      target: Target.SECRET,
-      action: Action.LIST,
-    })
+    const res = this._executeSync<Target.SECRET, Action.LIST>(
+      {
+        target: Target.SECRET,
+        action: Action.LIST,
+      },
+      undefined
+    )
     return Converter.toSecrets(res)
   }
 
-  async get(key: string, env?: string | null, defaultValue?: string) {
+  async get(key: string, env?: string, defaultValue?: string) {
     try {
-      const res = await this._execute({
-        target: Target.SECRET,
-        action: Action.GET,
-        name: key,
-        env,
-      })
+      const res = await this._execute<Target.SECRET, Action.GET>(
+        {
+          target: Target.SECRET,
+          action: Action.GET,
+        },
+        {
+          key,
+          environment: env,
+        }
+      )
       if (res.trim() === '[]') {
         throw new EmptyOutputError()
       }
@@ -75,14 +91,18 @@ export class Locker implements ILockerSecret {
     }
   }
 
-  getSync(key: string, env?: string | null, defaultValue?: string) {
+  getSync(key: string, env?: string, defaultValue?: string) {
     try {
-      const res = this._executeSync({
-        target: Target.SECRET,
-        action: Action.GET,
-        name: key,
-        env,
-      })
+      const res = this._executeSync<Target.SECRET, Action.GET>(
+        {
+          target: Target.SECRET,
+          action: Action.GET,
+        },
+        {
+          key,
+          environment: env,
+        }
+      )
       return Converter.toSecret(res).value
     } catch (error) {
       if (!(error instanceof EmptyOutputError)) {
@@ -92,14 +112,18 @@ export class Locker implements ILockerSecret {
     }
   }
 
-  async retrieve(key: string, env?: string | null) {
+  async retrieve(key: string, env?: string) {
     try {
-      const res = await this._execute({
-        target: Target.SECRET,
-        action: Action.GET,
-        name: key,
-        env,
-      })
+      const res = await this._execute<Target.SECRET, Action.GET>(
+        {
+          target: Target.SECRET,
+          action: Action.GET,
+        },
+        {
+          key,
+          environment: env,
+        }
+      )
       if (res.trim() === '[]') {
         throw new EmptyOutputError()
       }
@@ -109,14 +133,18 @@ export class Locker implements ILockerSecret {
     }
   }
 
-  retrieveSync(key: string, env?: string | null) {
+  retrieveSync(key: string, env?: string) {
     try {
-      const res = this._executeSync({
-        target: Target.SECRET,
-        action: Action.GET,
-        name: key,
-        env,
-      })
+      const res = this._executeSync<Target.SECRET, Action.GET>(
+        {
+          target: Target.SECRET,
+          action: Action.GET,
+        },
+        {
+          key,
+          environment: env,
+        }
+      )
       return Converter.toSecret(res)
     } catch (error) {
       throw error
@@ -129,11 +157,18 @@ export class Locker implements ILockerSecret {
     environmentName?: string
     description?: string
   }) {
-    const res = await this._execute({
-      target: Target.SECRET,
-      action: Action.CREATE,
-      data,
-    })
+    const res = await this._execute<Target.SECRET, Action.CREATE>(
+      {
+        target: Target.SECRET,
+        action: Action.CREATE,
+      },
+      {
+        key: data.key,
+        value: data.value,
+        environment: data.environmentName,
+        description: data.description,
+      }
+    )
     return Converter.toSecret(res)
   }
 
@@ -146,49 +181,69 @@ export class Locker implements ILockerSecret {
       description?: string
     }
   ) {
-    const res = await this._execute({
-      target: Target.SECRET,
-      action: Action.UPDATE,
-      name: key,
-      env,
-      data: { key, ...data, environmentName: data.environmentName || null },
-    })
+    const res = await this._execute<Target.SECRET, Action.UPDATE>(
+      {
+        target: Target.SECRET,
+        action: Action.UPDATE,
+      },
+      {
+        key,
+        environment: env,
+        newValue: data.value,
+        newEnvironment: data.environmentName,
+        newDescription: data.description,
+      }
+    )
     return Converter.toSecret(res)
   }
 
   // ---------------- ENV ----------------
 
   async listEnvironments() {
-    const res = await this._execute({
-      target: Target.ENVIRONMENT,
-      action: Action.LIST,
-    })
+    const res = await this._execute<Target.ENVIRONMENT, Action.LIST>(
+      {
+        target: Target.ENVIRONMENT,
+        action: Action.LIST,
+      },
+      undefined
+    )
     return Converter.toEnvironments(res)
   }
 
   listEnvironmentsSync() {
-    const res = this._executeSync({
-      target: Target.ENVIRONMENT,
-      action: Action.LIST,
-    })
+    const res = this._executeSync<Target.ENVIRONMENT, Action.LIST>(
+      {
+        target: Target.ENVIRONMENT,
+        action: Action.LIST,
+      },
+      undefined
+    )
     return Converter.toEnvironments(res)
   }
 
   async getEnvironment(name: string) {
-    const res = await this._execute({
-      target: Target.ENVIRONMENT,
-      action: Action.GET,
-      name,
-    })
+    const res = await this._execute<Target.ENVIRONMENT, Action.GET>(
+      {
+        target: Target.ENVIRONMENT,
+        action: Action.GET,
+      },
+      {
+        name,
+      }
+    )
     return Converter.toEnvironment(res)
   }
 
   getEnvironmentSync(name: string) {
-    const res = this._executeSync({
-      target: Target.ENVIRONMENT,
-      action: Action.GET,
-      name,
-    })
+    const res = this._executeSync<Target.ENVIRONMENT, Action.GET>(
+      {
+        target: Target.ENVIRONMENT,
+        action: Action.GET,
+      },
+      {
+        name,
+      }
+    )
     return Converter.toEnvironment(res)
   }
 
@@ -197,11 +252,17 @@ export class Locker implements ILockerSecret {
     externalUrl: string
     description?: string
   }) {
-    const res = await this._execute({
-      target: Target.ENVIRONMENT,
-      action: Action.CREATE,
-      data,
-    })
+    const res = await this._execute<Target.ENVIRONMENT, Action.CREATE>(
+      {
+        target: Target.ENVIRONMENT,
+        action: Action.CREATE,
+      },
+      {
+        name: data.name,
+        url: data.externalUrl,
+        description: data.description,
+      }
+    )
     return Converter.toEnvironment(res)
   }
 
@@ -209,52 +270,65 @@ export class Locker implements ILockerSecret {
     name: string,
     data: { externalUrl: string; description?: string }
   ) {
-    const res = await this._execute({
-      target: Target.ENVIRONMENT,
-      action: Action.UPDATE,
-      name,
-      data: { name, ...data },
-    })
+    const res = await this._execute<Target.ENVIRONMENT, Action.UPDATE>(
+      {
+        target: Target.ENVIRONMENT,
+        action: Action.UPDATE,
+      },
+      {
+        name,
+        newUrl: data.externalUrl,
+        newDescription: data.description,
+      }
+    )
     return Converter.toEnvironment(res)
   }
 
   // ----------------- PRIVATE METHDOS -----------------
 
-  private async _execute(
-    params: Omit<
-      Omit<Omit<CommandParams, 'accessKeyId'>, 'secretAccessKey'>,
+  private async _execute<T extends Target, A extends Action>(
+    config: Omit<
+      Omit<Omit<CommandConfig, 'accessKeyId'>, 'secretAccessKey'>,
       'apiBase'
-    >
+    >,
+    data: CommandData[T][A]
   ) {
     try {
-      return await this.executor.runCommand({
-        ...params,
-        accessKeyId: this.accessKeyId,
-        secretAccessKey: this.secretAccessKey,
-        apiBase: this.apiBase,
-        headers: this.headers,
-        unsafe: this.unsafe,
-      })
+      return await this.executor.runCommand(
+        {
+          ...config,
+          accessKeyId: this.accessKeyId,
+          secretAccessKey: this.secretAccessKey,
+          apiBase: this.apiBase,
+          headers: this.headers,
+          unsafe: this.unsafe,
+        },
+        data
+      )
     } catch (error) {
       throw Converter.toError((error as any).toString())
     }
   }
 
-  private _executeSync(
-    params: Omit<
-      Omit<Omit<CommandParams, 'accessKeyId'>, 'secretAccessKey'>,
+  private _executeSync<T extends Target, A extends Action>(
+    config: Omit<
+      Omit<Omit<CommandConfig, 'accessKeyId'>, 'secretAccessKey'>,
       'apiBase'
-    >
+    >,
+    data: CommandData[T][A]
   ) {
     try {
-      return this.executor.runCommandSync({
-        ...params,
-        accessKeyId: this.accessKeyId,
-        secretAccessKey: this.secretAccessKey,
-        apiBase: this.apiBase,
-        headers: this.headers,
-        unsafe: this.unsafe,
-      })
+      return this.executor.runCommandSync(
+        {
+          ...config,
+          accessKeyId: this.accessKeyId,
+          secretAccessKey: this.secretAccessKey,
+          apiBase: this.apiBase,
+          headers: this.headers,
+          unsafe: this.unsafe,
+        },
+        data
+      )
     } catch (error) {
       throw Converter.toError((error as any).toString())
     }

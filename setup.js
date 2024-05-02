@@ -22,13 +22,13 @@ function downloadFile(platform) {
   let url;
 
   if (platform === 'macos-arm64') {
-    url = 'https://s.locker.io/download/locker-cli-mac-arm64-1.0.82';
+    url = 'https://s.locker.io/download/locker-cli-mac-arm64-1.0.88';
   } else if (platform === 'macos-x64') {
-    url = 'https://s.locker.io/download/locker-cli-mac-x64-1.0.82';
+    url = 'https://s.locker.io/download/locker-cli-mac-x64-1.0.88';
   } else if (platform === 'windows') {
-    url = 'https://s.locker.io/download/locker-cli-win-x64-1.0.82.exe';
+    url = 'https://s.locker.io/download/locker-cli-win-x64-1.0.88.exe';
   } else if (platform === 'linux') {
-    url = 'https://s.locker.io/download/locker-cli-linux-x64-1.0.82';
+    url = 'https://s.locker.io/download/locker-cli-linux-x64-1.0.88';
   } else {
     throw new Error('Unsupported platform');
   }
