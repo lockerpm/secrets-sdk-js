@@ -154,11 +154,11 @@ export class BinaryExecutor implements Executor {
     if (data) {
       const flagObj = camelToFlag(data)
       Object.keys(flagObj).forEach((k) => {
-        let value = flagObj[k]
+        const value = flagObj[k]
         if (value === '') {
-          value = '""'
-        }
-        if (value !== undefined) {
+          command += ` --${k} ""`
+          paramsList.push(`--${k}`, '')
+        } else if (value !== undefined) {
           command += ` --${k} ${value}`
           paramsList.push(`--${k}`, value)
         }

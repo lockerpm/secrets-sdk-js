@@ -86,7 +86,7 @@ const secrets = await locker.list()
 const secrets = locker.listSync()
 
 // Get a secret value by secret key
-// Replace 'ENVIRONMENT' with null or undefined for the enviroment ALL 
+// Replace 'ENVIRONMENT' with undefined to get secret from the environment ALL
 const secretValue1 = await locker.get('SECRET_NAME_1')
 const secretValue2 = await locker.get('SECRET_NAME_2', 'ENVIRONMENT')
 const secretValue3 = await locker.get('SECRET_NAME_3', 'ENVIRONMENT', 'default value')
@@ -102,13 +102,15 @@ const secret1 = locker.retrieveSync('SECRET_NAME_1')
 const secret = await locker.create({
   key: 'key',
   value: 'value',
+  description: 'description',
   environmentName: 'environmentName'
 })
 
 // Update secret
 const secret = await locker.modify('SECRET', 'ENVIRONMENT', {
-  value: 'value',
-  environmentName: 'environmentName'  // set to undefined for the enviroment ALL
+  value: 'new value',
+  description: 'new description',
+  environmentName: 'environmentName'  // use '' to set environment to ALL
 })
 
 // List environments
@@ -124,11 +126,13 @@ const environment = locker.getEnvironmentSync('prod')
 # Create new environment
 const newEnvironment = await locker.createEnvironment({
   name: 'name',
+  description: 'description',
   externalUrl: 'externalUrl'
 })
 
 # Update an environment by name
 const environment = await locker.modifyEnvironment("name", {
+  description: 'new description',
   externalUrl: 'new value',
 })
 ```
