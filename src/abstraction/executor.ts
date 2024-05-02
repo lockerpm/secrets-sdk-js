@@ -10,20 +10,65 @@ export enum Action {
   UPDATE = 'update',
 }
 
-export type CommandParams = {
+export type CommandConfig = {
   target: Target
   action: Action
   accessKeyId: string
   secretAccessKey: string
   apiBase: string
-  name?: string
-  env?: string | null
-  data?: { [key: string]: any }
   headers?: { [key: string]: any }
   unsafe?: boolean
 }
 
+export interface CommandData {
+  [Target.SECRET]: {
+    [Action.CREATE]: {
+      key: string
+      value: string
+      environment?: string
+      description?: string
+    }
+    [Action.GET]: {
+      key: string
+      environment?: string
+    }
+    [Action.LIST]: undefined
+    [Action.UPDATE]: {
+      key: string
+      environment?: string
+      newKey?: string
+      newValue?: string
+      newEnvironment?: string
+      newDescription?: string
+    }
+  }
+
+  [Target.ENVIRONMENT]: {
+    [Action.CREATE]: {
+      name: string
+      url: string
+      description?: string
+    }
+    [Action.GET]: {
+      name: string
+    }
+    [Action.LIST]: undefined
+    [Action.UPDATE]: {
+      name: string
+      newName?: string
+      newUrl?: string
+      newDescription?: string
+    }
+  }
+}
+
 export interface Executor {
-  runCommand: (params: CommandParams) => Promise<string>
-  runCommandSync: (params: CommandParams) => string
+  runCommand: (
+    params: CommandConfig,
+    data: CommandData[Target][Action]
+  ) => Promise<string>
+  runCommandSync: (
+    params: CommandConfig,
+    data: CommandData[Target][Action]
+  ) => string
 }
