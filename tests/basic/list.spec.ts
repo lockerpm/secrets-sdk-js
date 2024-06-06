@@ -5,7 +5,7 @@ import { locker } from '../mocks'
 
 /**
  * Functional testing
- * These tests require an existing project with 1 secret named first (All) and 1 env named init
+ * These tests require an existing project with 1 secret named first (All), 1 secret named first init (init) and 1 env named init
  * Because a SDK doesn't have permission to delete --> no way to clean up
  */
 
@@ -25,11 +25,26 @@ describe('List existing secrets and environments', function () {
   let testEnv: Environment // init
 
   it('list secrets', async () => {
-    const secrets = await locker.list()
+    const secrets = await locker.list(undefined, {
+      fetch: true,
+      restTime: 0,
+    })
     assert.isArray(secrets)
     assert.isNotEmpty(secrets)
-    assert.instanceOf(secrets[0], Secret)
+    for (const secret of secrets) {
+      assert.instanceOf(secret, Secret)
+    }
     testSecret = secrets.find((s) => s.key === 'first')!
+  })
+
+  it('list secrets by environment', async () => {
+    const secrets = await locker.list('init')
+    assert.isArray(secrets)
+    assert.isNotEmpty(secrets)
+    for (const secret of secrets) {
+      assert.instanceOf(secret, Secret)
+      assert.equal(secret.environmentName, 'init')
+    }
   })
 
   it('list environments', async () => {

@@ -75,7 +75,7 @@ All initialization options are listed below:
 | headers               | Custom headers for API calls             | `{[header: string]: string}`          | ❌       | 
 | unsafe                | Set TLS to unsafe if you use a server with self-signed certificate, default value is `false`   | `boolean` | ❌       | 
 | logLevel              | Refer to [Logging](#logging), default value is `1`  | `number`                         | ❌       | 
-
+| cacheOptions          | Default caching strategy, read more in [Caching](#caching) | `CacheOptions` | ❌
 
 Now, you can use SDK to get or set values:
 
@@ -84,6 +84,16 @@ Now, you can use SDK to get or set values:
 const secrets = await locker.list()
 // or
 const secrets = locker.listSync()
+
+// List secrets by environment
+const secretsInProd = await locker.list('production')
+
+// Export secrets to file
+await locker.export({
+  outputFile: '.env.prod',
+  format: 'env',
+  env: 'production'
+})
 
 // Get a secret value by secret key
 // Replace 'ENVIRONMENT' with undefined to get secret from the environment ALL
@@ -123,14 +133,14 @@ const environment = await locker.getEnvironment('prod')
 // or
 const environment = locker.getEnvironmentSync('prod')
 
-# Create new environment
+// Create new environment
 const newEnvironment = await locker.createEnvironment({
   name: 'name',
   description: 'description',
   externalUrl: 'externalUrl'
 })
 
-# Update an environment by name
+// Update an environment by name
 const environment = await locker.modifyEnvironment("name", {
   description: 'new description',
   externalUrl: 'new value',
@@ -149,11 +159,36 @@ const locker = new Locker({
 })
 ```
 
+### Caching
+
+By default, Locker fetches data from the cloud server once and stores it in local storage. It only checks for updates every 120 seconds to prevent unnecessary API calls. You can change this behavior at the object level or method level using `fetch` and `restTime`
+
+```js
+// Object level, this config will apply to all methods
+const locker = new Locker({
+  // ...
+  cacheOptions: {
+    fetch: false // setting it to true will force Locker to fetch from the cloud server instead of local storage
+    restTime: 5 // seconds, only accept integer value
+  }
+})
+
+// Method level, only apply to current method call
+const secret = await locker.get('secret', 'env', '', {
+  fetch: true
+})
+```
+
 ## Development
 
 Install required packages.
 ```bash
 npm install
+```
+
+Download binary into `/bin`
+```bash
+node setup.js
 ```
 
 ### Run tests

@@ -131,10 +131,14 @@ export class BinaryExecutor implements Executor {
       apiBase,
       headers,
       unsafe,
+      fetch,
+      restTime,
+      output,
+      outputFormat,
     } = config
 
     // Raw command
-    let command = `${target} ${action} --access-key-id "${accessKeyId}" --secret-access-key "${secretAccessKey}" --api-base ${apiBase} --agent "${this._agent}" --json`
+    let command = `${target} ${action} --access-key-id "${accessKeyId}" --secret-access-key "${secretAccessKey}" --api-base ${apiBase} --agent "${this._agent}"`
 
     // Params list broken from raw command
     const paramsList = [
@@ -148,8 +152,12 @@ export class BinaryExecutor implements Executor {
       apiBase,
       '--agent',
       this._agent,
-      '--json',
     ]
+
+    // Default ouput json
+    command += ` --output-format ${outputFormat || 'json'}`
+    paramsList.push('--output-format')
+    paramsList.push(outputFormat || 'json')
 
     if (data) {
       const flagObj = camelToFlag(data)
@@ -164,9 +172,23 @@ export class BinaryExecutor implements Executor {
         }
       })
     }
+    if (output) {
+      command += ` --output ${output}`
+      paramsList.push('--output')
+      paramsList.push(output)
+    }
     if (unsafe) {
       command += ' --unsafe'
       paramsList.push('--unsafe')
+    }
+    if (fetch) {
+      command += ' --fetch'
+      paramsList.push('--fetch')
+    }
+    if (restTime || restTime === 0) {
+      command += ` --resttime ${restTime}`
+      paramsList.push('--resttime')
+      paramsList.push(restTime.toString())
     }
     if (headers) {
       if (typeof headers !== 'object') {

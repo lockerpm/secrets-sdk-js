@@ -15,4 +15,8 @@ export const locker = new Locker({
   },
   apiBase: process.env.BASE_API,
   logLevel: LogLevel.DEBUG,
+  cacheOptions: {
+    fetch: false,
+    restTime: 120,
+  },
 })
