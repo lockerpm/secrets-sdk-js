@@ -10,6 +10,8 @@ export enum Action {
   UPDATE = 'update',
 }
 
+export type ExportFormat = 'txt' | 'json' | 'env'
+
 export type CommandConfig = {
   target: Target
   action: Action
@@ -18,6 +20,10 @@ export type CommandConfig = {
   apiBase: string
   headers?: { [key: string]: any }
   unsafe?: boolean
+  fetch?: boolean
+  restTime?: number
+  output?: string
+  outputFormat?: ExportFormat
 }
 
 export interface CommandData {
@@ -32,7 +38,9 @@ export interface CommandData {
       key: string
       environment?: string
     }
-    [Action.LIST]: undefined
+    [Action.LIST]: {
+      environment?: string
+    }
     [Action.UPDATE]: {
       key: string
       environment?: string

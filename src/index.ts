@@ -1,10 +1,11 @@
-import { ILockerSecret, LogLevel } from './abstraction'
+import { CacheOptions, ILockerSecret, LogLevel } from './abstraction'
 import { EmptyOutputError } from './abstraction/errors'
 import {
   Action,
   CommandConfig,
   CommandData,
   Executor,
+  ExportFormat,
   Target,
 } from './abstraction/executor'
 import { BinaryExecutor } from './executors/binary'
@@ -20,6 +21,7 @@ export class Locker implements ILockerSecret {
   secretAccessKey: string
   headers?: { [key: string]: string }
   unsafe?: boolean | undefined
+  cacheOptions?: CacheOptions | undefined
 
   private logger: Logger
   private executor: Executor
@@ -31,9 +33,17 @@ export class Locker implements ILockerSecret {
     headers?: { [key: string]: string }
     unsafe?: boolean
     logLevel?: LogLevel
+    cacheOptions?: CacheOptions
   }) {
-    const { accessKeyId, secretAccessKey, apiBase, headers, unsafe, logLevel } =
-      options
+    const {
+      accessKeyId,
+      secretAccessKey,
+      apiBase,
+      headers,
+      unsafe,
+      logLevel,
+      cacheOptions,
+    } = options
     this.accessKeyId = accessKeyId
     this.secretAccessKey = secretAccessKey
     this.apiBase = apiBase || DEFAULT_BASE_API
@@ -41,38 +51,78 @@ export class Locker implements ILockerSecret {
     this.logger = new Logger(logLevel || DEFAULT_LOG_LEVEL)
     this.executor = new BinaryExecutor(this.logger)
     this.unsafe = unsafe
+    this.cacheOptions = cacheOptions
   }
 
   // ---------------- SECRET ----------------
 
-  async list() {
+  async export(params: {
+    outputFile?: string
+    format?: ExportFormat
+    env?: string
+    config?: CacheOptions
+  }) {
+    const { config, env, outputFile, format } = params
+    const filename =
+      outputFile || `output${env ? '.' + env : ''}.${format || 'txt'}`
+    await this._execute<Target.SECRET, Action.LIST>(
+      {
+        target: Target.SECRET,
+        action: Action.LIST,
+        fetch: config?.fetch,
+        restTime: config?.restTime,
+        output: filename,
+        outputFormat: format,
+      },
+      {
+        environment: env,
+      }
+    )
+  }
+
+  async list(env?: string, config?: CacheOptions) {
     const res = await this._execute<Target.SECRET, Action.LIST>(
       {
         target: Target.SECRET,
         action: Action.LIST,
+        fetch: config?.fetch,
+        restTime: config?.restTime,
       },
-      undefined
+      {
+        environment: env,
+      }
     )
     return Converter.toSecrets(res)
   }
 
-  listSync() {
+  listSync(env?: string, config?: CacheOptions) {
     const res = this._executeSync<Target.SECRET, Action.LIST>(
       {
         target: Target.SECRET,
         action: Action.LIST,
+        fetch: config?.fetch,
+        restTime: config?.restTime,
       },
-      undefined
+      {
+        environment: env,
+      }
     )
     return Converter.toSecrets(res)
   }
 
-  async get(key: string, env?: string, defaultValue?: string) {
+  async get(
+    key: string,
+    env?: string,
+    defaultValue?: string,
+    config?: CacheOptions
+  ) {
     try {
       const res = await this._execute<Target.SECRET, Action.GET>(
         {
           target: Target.SECRET,
           action: Action.GET,
+          fetch: config?.fetch,
+          restTime: config?.restTime,
         },
         {
           key,
@@ -91,12 +141,19 @@ export class Locker implements ILockerSecret {
     }
   }
 
-  getSync(key: string, env?: string, defaultValue?: string) {
+  getSync(
+    key: string,
+    env?: string,
+    defaultValue?: string,
+    config?: CacheOptions
+  ) {
     try {
       const res = this._executeSync<Target.SECRET, Action.GET>(
         {
           target: Target.SECRET,
           action: Action.GET,
+          fetch: config?.fetch,
+          restTime: config?.restTime,
         },
         {
           key,
@@ -112,12 +169,14 @@ export class Locker implements ILockerSecret {
     }
   }
 
-  async retrieve(key: string, env?: string) {
+  async retrieve(key: string, env?: string, config?: CacheOptions) {
     try {
       const res = await this._execute<Target.SECRET, Action.GET>(
         {
           target: Target.SECRET,
           action: Action.GET,
+          fetch: config?.fetch,
+          restTime: config?.restTime,
         },
         {
           key,
@@ -133,12 +192,14 @@ export class Locker implements ILockerSecret {
     }
   }
 
-  retrieveSync(key: string, env?: string) {
+  retrieveSync(key: string, env?: string, config?: CacheOptions) {
     try {
       const res = this._executeSync<Target.SECRET, Action.GET>(
         {
           target: Target.SECRET,
           action: Action.GET,
+          fetch: config?.fetch,
+          restTime: config?.restTime,
         },
         {
           key,
@@ -151,16 +212,21 @@ export class Locker implements ILockerSecret {
     }
   }
 
-  async create(data: {
-    key: string
-    value: string
-    environmentName?: string
-    description?: string
-  }) {
+  async create(
+    data: {
+      key: string
+      value: string
+      environmentName?: string
+      description?: string
+    },
+    config?: CacheOptions
+  ) {
     const res = await this._execute<Target.SECRET, Action.CREATE>(
       {
         target: Target.SECRET,
         action: Action.CREATE,
+        fetch: config?.fetch,
+        restTime: config?.restTime,
       },
       {
         key: data.key,
@@ -179,12 +245,15 @@ export class Locker implements ILockerSecret {
       value: string
       environmentName?: string
       description?: string
-    }
+    },
+    config?: CacheOptions
   ) {
     const res = await this._execute<Target.SECRET, Action.UPDATE>(
       {
         target: Target.SECRET,
         action: Action.UPDATE,
+        fetch: config?.fetch,
+        restTime: config?.restTime,
       },
       {
         key,
@@ -199,33 +268,39 @@ export class Locker implements ILockerSecret {
 
   // ---------------- ENV ----------------
 
-  async listEnvironments() {
+  async listEnvironments(config?: CacheOptions) {
     const res = await this._execute<Target.ENVIRONMENT, Action.LIST>(
       {
         target: Target.ENVIRONMENT,
         action: Action.LIST,
+        fetch: config?.fetch,
+        restTime: config?.restTime,
       },
       undefined
     )
     return Converter.toEnvironments(res)
   }
 
-  listEnvironmentsSync() {
+  listEnvironmentsSync(config?: CacheOptions) {
     const res = this._executeSync<Target.ENVIRONMENT, Action.LIST>(
       {
         target: Target.ENVIRONMENT,
         action: Action.LIST,
+        fetch: config?.fetch,
+        restTime: config?.restTime,
       },
       undefined
     )
     return Converter.toEnvironments(res)
   }
 
-  async getEnvironment(name: string) {
+  async getEnvironment(name: string, config?: CacheOptions) {
     const res = await this._execute<Target.ENVIRONMENT, Action.GET>(
       {
         target: Target.ENVIRONMENT,
         action: Action.GET,
+        fetch: config?.fetch,
+        restTime: config?.restTime,
       },
       {
         name,
@@ -234,11 +309,13 @@ export class Locker implements ILockerSecret {
     return Converter.toEnvironment(res)
   }
 
-  getEnvironmentSync(name: string) {
+  getEnvironmentSync(name: string, config?: CacheOptions) {
     const res = this._executeSync<Target.ENVIRONMENT, Action.GET>(
       {
         target: Target.ENVIRONMENT,
         action: Action.GET,
+        fetch: config?.fetch,
+        restTime: config?.restTime,
       },
       {
         name,
@@ -247,15 +324,20 @@ export class Locker implements ILockerSecret {
     return Converter.toEnvironment(res)
   }
 
-  async createEnvironment(data: {
-    name: string
-    externalUrl: string
-    description?: string
-  }) {
+  async createEnvironment(
+    data: {
+      name: string
+      externalUrl: string
+      description?: string
+    },
+    config?: CacheOptions
+  ) {
     const res = await this._execute<Target.ENVIRONMENT, Action.CREATE>(
       {
         target: Target.ENVIRONMENT,
         action: Action.CREATE,
+        fetch: config?.fetch,
+        restTime: config?.restTime,
       },
       {
         name: data.name,
@@ -268,12 +350,15 @@ export class Locker implements ILockerSecret {
 
   async modifyEnvironment(
     name: string,
-    data: { externalUrl: string; description?: string }
+    data: { externalUrl: string; description?: string },
+    config?: CacheOptions
   ) {
     const res = await this._execute<Target.ENVIRONMENT, Action.UPDATE>(
       {
         target: Target.ENVIRONMENT,
         action: Action.UPDATE,
+        fetch: config?.fetch,
+        restTime: config?.restTime,
       },
       {
         name,
@@ -302,6 +387,8 @@ export class Locker implements ILockerSecret {
           apiBase: this.apiBase,
           headers: this.headers,
           unsafe: this.unsafe,
+          fetch: config.fetch || this.cacheOptions?.fetch,
+          restTime: config.restTime ?? this.cacheOptions?.restTime,
         },
         data
       )
@@ -326,6 +413,8 @@ export class Locker implements ILockerSecret {
           apiBase: this.apiBase,
           headers: this.headers,
           unsafe: this.unsafe,
+          fetch: config.fetch || this.cacheOptions?.fetch,
+          restTime: config.restTime ?? this.cacheOptions?.restTime,
         },
         data
       )
