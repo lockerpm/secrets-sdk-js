@@ -23,7 +23,9 @@ describe('Create new and update env', function () {
     }
     let res: any
     try {
-      res = await locker.createEnvironment(payload)
+      res = await locker.createEnvironment(payload, {
+        fetch: true,
+      })
     } catch (error) {
       res = error
     }
