@@ -154,7 +154,7 @@ export class BinaryExecutor implements Executor {
       this._agent,
     ]
 
-    // Default ouput json
+    // Default output json
     command += ` --output-format ${outputFormat || 'json'}`
     paramsList.push('--output-format')
     paramsList.push(outputFormat || 'json')

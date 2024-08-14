@@ -369,7 +369,7 @@ export class Locker implements ILockerSecret {
     return Converter.toEnvironment(res)
   }
 
-  // ----------------- PRIVATE METHDOS -----------------
+  // ----------------- PRIVATE METHODS -----------------
 
   private async _execute<T extends Target, A extends Action>(
     config: Omit<
