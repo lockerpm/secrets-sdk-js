@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.2.1 - 2024-10-10
+
+### Changed
+
+- Update binary version to 1.0.98 to support linux-arm64 system
+
 ## 1.2.1 - 2024-08-14
 
 ### Changed
