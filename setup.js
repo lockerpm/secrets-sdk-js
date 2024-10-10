@@ -11,7 +11,7 @@ function getPlatformInfo() {
     case 'win32':
       return 'windows';
     case 'linux':
-      return 'linux';
+      return os.arch() === 'arm64' ? 'linux-arm64' : 'linux-x64';
     default:
       throw new Error('Unsupported platform');
   }
@@ -22,13 +22,15 @@ function downloadFile(platform) {
   let url;
 
   if (platform === 'macos-arm64') {
-    url = 'https://s.locker.io/download/locker-cli-mac-arm64-1.0.94';
+    url = 'https://s.locker.io/download/locker-cli-mac-arm64-1.0.98';
   } else if (platform === 'macos-x64') {
-    url = 'https://s.locker.io/download/locker-cli-mac-x64-1.0.94';
+    url = 'https://s.locker.io/download/locker-cli-mac-x64-1.0.98';
   } else if (platform === 'windows') {
-    url = 'https://s.locker.io/download/locker-cli-win-x64-1.0.94.exe';
-  } else if (platform === 'linux') {
-    url = 'https://s.locker.io/download/locker-cli-linux-x64-1.0.94';
+    url = 'https://s.locker.io/download/locker-cli-win-x64-1.0.98.exe';
+  } else if (platform === 'linux-x64') {
+    url = 'https://s.locker.io/download/locker-cli-linux-x64-1.0.98';
+  } else if (platform === 'linux-arm64') {
+    url = 'https://s.locker.io/download/locker-cli-linux-arm64-1.0.98';
   } else {
     throw new Error('Unsupported platform');
   }
