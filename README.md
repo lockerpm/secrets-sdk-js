@@ -37,13 +37,13 @@ The documentation will be updated later.
 Install from npm:
 
 ```bash
-npm install -S @lockerpm/secrets
+npm install -S lockersm
 ```
 
 Install from yarn:
 
 ```bash
-yarn add @lockerpm/secrets
+yarn add lockersm
 ```
 
 ## Usages
@@ -55,7 +55,7 @@ Initialize the `accessKeyId` and `secretAccessKey` to their value.
 You also need to set `apiBase` value (default value is `https://api.locker.io/locker_secrets`).
 
 ```js
-import { Locker } from '@lockerpm/secrets'
+import { Locker } from 'lockersm'
 
 // You should not hardcode access key credentials. Instead, load them from environment variables
 const locker = new Locker({
