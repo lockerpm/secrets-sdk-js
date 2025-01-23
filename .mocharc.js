@@ -6,10 +6,11 @@ module.exports = {
   require: 'ts-node/register',
   ignore: [
     // Basic cases
-    './tests/basic/export.spec.ts',
     './tests/basic/list.spec.ts',
     './tests/basic/update-env.spec.ts',
     './tests/basic/update-secret.spec.ts',
+    './tests/basic/import.spec.ts',
+    './tests/basic/export.spec.ts',
 
     // Alternative cases
     './tests/others/sync.spec.ts',

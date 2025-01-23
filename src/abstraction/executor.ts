@@ -8,6 +8,7 @@ export enum Action {
   GET = 'get',
   LIST = 'list',
   UPDATE = 'update',
+  IMPORT = 'import',
 }
 
 export type ExportFormat = 'txt' | 'json' | 'env'
@@ -49,6 +50,9 @@ export interface CommandData {
       newEnvironment?: string
       newDescription?: string
     }
+    [Action.IMPORT]: {
+      source: string
+    }
   }
 
   [Target.ENVIRONMENT]: {
@@ -67,6 +71,9 @@ export interface CommandData {
       newUrl?: string
       newDescription?: string
     }
+
+    // Not available
+    [Action.IMPORT]: undefined
   }
 }
 

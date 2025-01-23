@@ -1,5 +1,4 @@
-import { Locker } from '../../src'
-import { LogLevel } from '../../src/abstraction'
+import { Locker, LogLevel } from '../../src'
 
 require('dotenv').config()
 
