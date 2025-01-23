@@ -110,3 +110,5 @@ lib
 .vscode
 
 bin/
+
+output-test
