@@ -4,7 +4,7 @@ export class Logger {
   logLevel: LogLevel
 
   constructor(logLevel?: LogLevel) {
-    this.logLevel = logLevel || LogLevel.ERROR
+    this.logLevel = logLevel ?? LogLevel.ERROR
   }
 
   setLogLevel(level: LogLevel) {

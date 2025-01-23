@@ -153,9 +153,11 @@ The library can be configured to emit logging that will give you better insight 
 There are some levels: `NONE (0)`, `ERROR (1)`, `DEBUG (2)`.
 Set the logging level when creating a Locker instance to enabling it:
 ```js
+import { Locker, LogLevel } from 'lockersm'
+
 const locker = new Locker({
   // ...
-  logLevel: 1  // default is ERROR
+  logLevel: LogLevel.ERROR  // default
 })
 ```
 

@@ -10,7 +10,7 @@ export interface ILockerSecret {
 
   /**
    * Export secrets to file
-   * @param params
+   * @param params outputFile must be either filename, or an absolute path
    * @returns
    */
   export: (params: {
@@ -185,6 +185,13 @@ export interface ILockerSecret {
     data: { externalUrl: string; description?: string },
     config?: CacheOptions
   ) => Promise<IEnvironment>
+
+  /**
+   * Read all secrets from source file and save to Locker Secrets, supporing .env and .ini files
+   * @param source absolute path to file
+   * @returns list of detected secrets
+   */
+  import: (source: string) => Promise<void>
 }
 
 export interface ISecret {

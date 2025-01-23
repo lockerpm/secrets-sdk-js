@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.2.4 - 2025-01-23
+
+### Added
+
+- Use `import(source)` to import secrets from `.env` or `.ini` files
+- Add interfaces, types, and enums to export
+
+### Changed
+
+- Update binary version to 1.0.100 to fix migration error
+
+### Fixed
+
+- `LogLevel.NONE` not working when init `Locker` object
+
 ## 1.2.3 - 2024-10-30
 
 ### Changed
