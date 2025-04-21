@@ -33,7 +33,10 @@ describe('List existing secrets and environments using synchronized method', fun
   })
 
   it('get 1 secret', () => {
-    const value = locker.getSync(testSecret.key, testSecret.environmentName)
+    const value = locker.getSync(
+      testSecret.key,
+      testSecret.environmentName || undefined
+    )
     assert.equal(value, testSecret.value)
   })
 
