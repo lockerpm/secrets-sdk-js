@@ -29,7 +29,10 @@ describe('List existing secrets and environments with readonly key', function ()
   })
 
   it('get 1 secret', async () => {
-    const value = await locker.get(testSecret.key, testSecret.environmentName)
+    const value = await locker.get(
+      testSecret.key,
+      testSecret.environmentName || undefined
+    )
     assert.equal(value, testSecret.value)
   })
 
