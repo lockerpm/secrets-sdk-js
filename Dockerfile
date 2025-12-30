@@ -1,8 +1,8 @@
-FROM node:16.14.0
+FROM node:22.21.1-alpine
 
 WORKDIR /app
 
-RUN apt update
+RUN apk update
 
 COPY package.json .
 
