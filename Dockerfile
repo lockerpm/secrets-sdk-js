@@ -16,4 +16,4 @@ COPY . .
 
 ARG NPM_TOKEN
 
-RUN npm publish
+RUN npm publish --access public
