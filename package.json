@@ -1,6 +1,6 @@
 {
   "name": "lockersm",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "description": "Locker Secrets SDK for NodeJS",
   "exports": {
     ".": {
@@ -23,7 +23,7 @@
   "scripts": {
     "clean": "rm -rf ./lib",
     "build": "npm run clean && npm run build:esm && npm run build:cjs",
-    "build:esm": "tsc -p ./configs/tsconfig.esm.json && mv lib/esm/index.js lib/esm/index.mjs",
+    "build:esm": "tsc -p ./configs/tsconfig.esm.json && mv lib/esm/index.js lib/esm/index.mjs && echo '{\"type\":\"module\"}' > lib/esm/package.json",
     "build:cjs": "tsc -p ./configs/tsconfig.cjs.json",
     "prepack": "npm run build",
     "test": "mocha",
