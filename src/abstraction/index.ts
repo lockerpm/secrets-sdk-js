@@ -1,99 +1,112 @@
-import { ExportFormat } from './executor'
+import type {
+  CacheOptions,
+  ExportFormat,
+  ProtocolExecutor,
+} from './executor.js'
+
+export * from './errors.js'
+export * from './executor.js'
+
+export type LockerOptions = {
+  accessKeyId: string
+  secretAccessKey: string
+  apiBase?: string
+  headers?: Record<string, string>
+  unsafe?: boolean
+  logLevel?: LogLevel
+  cacheOptions?: CacheOptions
+  /**
+   * Explicit absolute path to a trusted regular, non-link Locker CLI file.
+   * Bare and relative paths are rejected; the SDK never searches PATH.
+   */
+  cliPath?: string
+  timeoutMs?: number
+  maxBufferBytes?: number
+  /**
+   * Dependency-injection seam for tests and advanced embedding.
+   */
+  executor?: ProtocolExecutor
+}
+
+export type PageRequest = {
+  readonly pageSize?: number
+  readonly cursor?: string
+}
+
+export interface ISecretPage {
+  readonly object: 'secret_page'
+  readonly items: readonly ISecret[]
+  readonly nextCursor: string | null
+}
+
+export interface IEnvironmentPage {
+  readonly object: 'environment_page'
+  readonly items: readonly IEnvironment[]
+  readonly nextCursor: string | null
+}
 
 export interface ILockerSecret {
   apiBase: string
   accessKeyId: string
   secretAccessKey: string
-  headers?: { [key: string]: string }
+  headers?: Record<string, string>
   unsafe?: boolean
   cacheOptions?: CacheOptions
 
-  /**
-   * Export secrets to file
-   * @param params outputFile must be either filename, or an absolute path
-   * @returns
-   */
-  export: (params: {
+  export: (params?: {
     outputFile?: string
     format?: ExportFormat
     env?: string
     config?: CacheOptions
   }) => Promise<void>
 
-  /**
-   * List all secrets
-   * @param env
-   * @param config
-   * @returns
-   */
   list: (env?: string, config?: CacheOptions) => Promise<ISecret[]>
-
-  /**
-   * List all secrets, but synchronously
-   * @param env
-   * @param config
-   * @returns
-   */
   listSync: (env?: string, config?: CacheOptions) => ISecret[]
+  listPage: (
+    page?: PageRequest,
+    env?: string,
+    config?: CacheOptions,
+  ) => Promise<ISecretPage>
+  listPageSync: (
+    page?: PageRequest,
+    env?: string,
+    config?: CacheOptions,
+  ) => ISecretPage
 
   /**
-   * Get a secret value by key and environment name, optionally return a default value
-   * @param key
-   * @param env
-   * @param defaultValue
-   * @param config
-   * @returns
+   * Return a default only when Locker reports NOT_FOUND. All other failures
+   * are propagated.
    */
   get: (
     key: string,
     env?: string,
-    defaultValue?: any,
-    config?: CacheOptions
+    defaultValue?: string,
+    config?: CacheOptions,
   ) => Promise<string | undefined>
 
-  /**
-   * Get a secret value synchronously by key and environment name, optionally return a default value
-   * @param key
-   * @param env
-   * @param defaultValue
-   * @param config
-   * @returns
-   */
   getSync: (
     key: string,
     env?: string,
-    defaultValue?: any,
-    config?: CacheOptions
+    defaultValue?: string,
+    config?: CacheOptions,
   ) => string | undefined
 
-  /**
-   * Get a secret object by key and environment name
-   * @param key
-   * @param env
-   * @param config
-   * @returns
-   */
+  getRequired: (
+    key: string,
+    env?: string,
+    config?: CacheOptions,
+  ) => Promise<string>
+
+  getRequiredSync: (key: string, env?: string, config?: CacheOptions) => string
+
   retrieve: (
     key: string,
     env?: string,
-    config?: CacheOptions
+    config?: CacheOptions,
   ) => Promise<ISecret>
 
-  /**
-   * Get a secret object synchronously by key and environment name
-   * @param key
-   * @param env
-   * @param config
-   * @returns
-   */
   retrieveSync: (key: string, env?: string, config?: CacheOptions) => ISecret
 
-  /**
-   * Create a secret
-   * @param data
-   * @param config
-   * @returns
-   */
   create: (
     data: {
       key: string
@@ -101,110 +114,87 @@ export interface ILockerSecret {
       environmentName?: string
       description?: string
     },
-    config?: CacheOptions
+    config?: CacheOptions,
   ) => Promise<ISecret>
 
-  /**
-   * Update a secret
-   * @param key
-   * @param data
-   * @param config
-   * @returns
-   */
   modify: (
     key: string,
     env: string,
     data: {
-      value: string
-      environmentName?: string
+      value?: string
+      newKey?: string
+      environmentName?: string | null
       description?: string
     },
-    config?: CacheOptions
+    config?: CacheOptions,
   ) => Promise<ISecret>
 
-  /**
-   * List all environments
-   * @param config
-   * @returns
-   */
   listEnvironments: (config?: CacheOptions) => Promise<IEnvironment[]>
-
-  /**
-   * List all environments but synchronously
-   * @param config
-   * @returns
-   */
   listEnvironmentsSync: (config?: CacheOptions) => IEnvironment[]
+  listEnvironmentsPage: (
+    page?: PageRequest,
+    config?: CacheOptions,
+  ) => Promise<IEnvironmentPage>
+  listEnvironmentsPageSync: (
+    page?: PageRequest,
+    config?: CacheOptions,
+  ) => IEnvironmentPage
 
-  /**
-   * Get an environment
-   * @param name
-   * @param config
-   * @returns
-   */
-  getEnvironment: (
-    name: string,
-    config?: CacheOptions
-  ) => Promise<IEnvironment | undefined>
+  getEnvironment: (name: string, config?: CacheOptions) => Promise<IEnvironment>
 
-  /**
-   * Get an environment but synchronously
-   * @param name
-   * @param config
-   * @returns
-   */
-  getEnvironmentSync: (
-    name: string,
-    config?: CacheOptions
-  ) => IEnvironment | undefined
+  getEnvironmentSync: (name: string, config?: CacheOptions) => IEnvironment
 
-  /**
-   * Create an environment
-   * @param data
-   * @param config
-   * @returns
-   */
   createEnvironment: (
     data: {
       name: string
-      externalUrl: string
+      externalUrl?: string
       description?: string
     },
-    config?: CacheOptions
+    config?: CacheOptions,
   ) => Promise<IEnvironment>
 
-  /**
-   * Update an environment
-   * @param name
-   * @param data
-   * @param config
-   * @returns
-   */
   modifyEnvironment: (
     name: string,
-    data: { externalUrl: string; description?: string },
-    config?: CacheOptions
+    data: {
+      newName?: string
+      externalUrl?: string
+      description?: string
+    },
+    config?: CacheOptions,
   ) => Promise<IEnvironment>
 
   /**
-   * Read all secrets from source file and save to Locker Secrets, supporing .env and .ini files
-   * @param source absolute path to file
-   * @returns list of detected secrets
+   * Import dotenv/INI-style assignments. Vault mutations use protocol v1.
    */
   import: (source: string) => Promise<void>
 }
 
 export interface ISecret {
+  readonly object?: string
+  readonly id?: string
+  readonly creationDate?: number
+  readonly revisionDate?: number
+  readonly updatedDate?: number | null
+  readonly deletedDate?: number | null
+  readonly lastUseDate?: number | null
+  readonly projectId?: number
+  readonly environmentId?: string | null
+  environmentName: string | null
   key: string
   value: string
   description: string
-  environmentName: string | null
 }
 
 export interface IEnvironment {
+  readonly object?: string
+  readonly id?: string
   name: string
   externalUrl: string
   description: string
+  readonly creationDate?: number
+  readonly revisionDate?: number
+  readonly updatedDate?: number | null
+  readonly projectId?: number
 }
 
 export enum LogLevel {
@@ -213,21 +203,51 @@ export enum LogLevel {
   DEBUG = 2,
 }
 
-export type CacheOptions = {
-  fetch?: boolean
-  restTime?: number
+export type SecretData = {
+  object: string
+  id: string
+  creation_date: number
+  revision_date: number
+  updated_date: number | null
+  deleted_date: number | null
+  last_use_date: number | null
+  project_id: number
+  environment_id: string | null
+  environment_name: string | null
+  key: string
+  value: string
+  description: string
+  [key: string]: unknown
 }
 
-export class LockerObj {
-  _raw: { [key: string]: any }
-  constructor(obj: { [key: string]: any }) {
-    this._raw = obj
+export type EnvironmentData = {
+  object: string
+  id: string
+  name: string
+  external_url: string
+  description: string
+  creation_date: number
+  revision_date: number
+  updated_date: number | null
+  project_id: number
+  [key: string]: unknown
+}
+
+export class LockerObj<
+  T extends Record<string, unknown> = Record<string, unknown>,
+> {
+  _raw: T
+
+  constructor(obj: T) {
+    this._raw = { ...obj }
   }
-  protected getValueOrDefault(key: string, defaultValue?: any) {
-    if (this._raw[key] === undefined && defaultValue !== undefined) {
-      return defaultValue
-    }
-    // TODO: apply type check here
-    return this._raw[key]
+
+  toJSON(): T {
+    return { ...this._raw }
+  }
+
+  protected getValueOrDefault(key: string, defaultValue?: any): any {
+    const value = this._raw[key]
+    return value === undefined ? defaultValue : value
   }
 }

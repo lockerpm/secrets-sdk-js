@@ -1,0 +1,16 @@
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.dll -text
+*.exe -text
+*.gif -text
+*.gz -text
+*.ico -text
+*.jpeg -text
+*.jpg -text
+*.pdf -text
+*.png -text
+*.tgz -text
+*.zip -text

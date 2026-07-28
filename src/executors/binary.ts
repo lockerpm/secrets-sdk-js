@@ -1,205 +1,842 @@
+import { randomUUID } from 'node:crypto'
+import { realpathSync, statSync } from 'node:fs'
+import process from 'node:process'
 import {
-  Action,
-  CommandData,
-  CommandConfig,
-  Executor,
-  Target,
-} from '../abstraction/executor'
-import { execFile, execFileSync } from 'child_process'
-import os from 'os'
-import path from 'path'
-import fs from 'fs'
-import { camelToFlag } from '../utils/helpers'
-import { Logger } from '../utils/logger'
+  DEFAULT_MAX_REQUEST_BYTES,
+  DEFAULT_MAX_RESPONSE_BYTES,
+  JSON_RPC_VERSION,
+  PROTOCOL_NAME,
+  PROTOCOL_VERSION,
+  type ExecuteOptions,
+  type JSONRPCRequest,
+  type LockerMethod,
+  type ProtocolExecutor,
+  type ProtocolCapabilities,
+  type VaultContext,
+} from '../abstraction/executor.js'
+import {
+  LockerCancelledError,
+  LockerError,
+  LockerTimeoutError,
+  LockerTransportError,
+  errorFromResponse,
+  type RequestID,
+} from '../abstraction/errors.js'
+import { resolveCLIPath } from '../cli/resolver.js'
+import { Logger } from '../utils/logger.js'
+import {
+  MAX_JSON_DEPTH,
+  assertJSONDepth,
+  parseStrictJSON,
+} from '../utils/json.js'
+import { SDK_VERSION } from '../version.js'
+import {
+  NodeProcessRunner,
+  ProcessFailure,
+  ProcessFailureReason,
+  type ProcessExecutionOptions,
+  type ProcessExecutionResult,
+  type ProcessRunner,
+} from './process.js'
 
-export class BinaryExecutor implements Executor {
-  logger: Logger
+const SDK_ARGUMENTS = Object.freeze(['sdk'] as const)
+const DEFAULT_TIMEOUT_MS = 30_000
+const DEFAULT_MAX_OUTPUT_BYTES = DEFAULT_MAX_RESPONSE_BYTES
+const MAX_OUTPUT_BYTES = DEFAULT_MAX_RESPONSE_BYTES
+const DEFAULT_MAX_STDERR_BYTES = 64 * 1024
+const EXPECTED_TRANSPORT = 'json-rpc-2.0-stdio'
 
-  private _binaryPath: string
-  private _agent: string
+const REQUIRED_METHODS: readonly string[] = Object.freeze([
+  'environment.create',
+  'environment.get',
+  'environment.list',
+  'environment.update',
+  'secret.create',
+  'secret.get',
+  'secret.list',
+  'secret.update',
+  'system.capabilities',
+])
 
-  constructor(logger: Logger) {
+export type BinaryExecutorOptions = {
+  cliPath?: string
+  clientVersion?: string
+  timeoutMs?: number
+  maxBufferBytes?: number
+  runner?: ProcessRunner
+}
+
+type JSONRPCErrorPayload = {
+  code: number
+  message: string
+  data: {
+    protocol_version: number
+    kind: string
+    retryable: boolean
+  }
+}
+
+type JSONRPCResultPayload = {
+  protocol_version: number
+  data: unknown
+  meta: {
+    cli_version: string
+  }
+}
+
+type DecodedRPCResult<T> = {
+  data: T
+  cliVersion: string
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function hasOwn(value: object, key: PropertyKey): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key)
+}
+
+function positiveSafeInteger(
+  value: number | undefined,
+  fallback: number,
+  name: string,
+): number {
+  const resolved = value ?? fallback
+  if (!Number.isSafeInteger(resolved) || resolved <= 0) {
+    throw new RangeError(`${name} must be a positive safe integer`)
+  }
+  return resolved
+}
+
+function protocolContext(context: VaultContext, clientVersion: string) {
+  const transport: Record<string, unknown> = {}
+  if (context.apiBase !== undefined) {
+    transport.api_base = context.apiBase
+  }
+  if (context.headers !== undefined) {
+    transport.headers = { ...context.headers }
+  }
+  if (context.unsafe !== undefined) {
+    transport.insecure_skip_tls_verify = context.unsafe
+  }
+
+  const cache: Record<string, unknown> = {}
+  if (context.fetch !== undefined) {
+    cache.force_refresh = context.fetch
+  }
+  if (context.restTime !== undefined) {
+    cache.max_age_seconds = context.restTime
+  }
+
+  return {
+    protocol_version: PROTOCOL_VERSION,
+    credentials: {
+      access_key_id: context.accessKeyId,
+      secret_access_key: context.secretAccessKey,
+    },
+    client: {
+      name: 'locker-js',
+      version: clientVersion,
+    },
+    ...(Object.keys(transport).length === 0 ? {} : { transport }),
+    ...(Object.keys(cache).length === 0 ? {} : { cache }),
+  }
+}
+
+function parseErrorPayload(value: unknown): JSONRPCErrorPayload | undefined {
+  if (!isRecord(value)) {
+    return undefined
+  }
+  const data = value.data
+  if (
+    !Number.isSafeInteger(value.code) ||
+    typeof value.message !== 'string' ||
+    value.message.trim() === '' ||
+    !isRecord(data) ||
+    !Number.isInteger(data.protocol_version) ||
+    typeof data.kind !== 'string' ||
+    data.kind.trim() === '' ||
+    typeof data.retryable !== 'boolean'
+  ) {
+    return undefined
+  }
+  return value as JSONRPCErrorPayload
+}
+
+function parseResultPayload(value: unknown): JSONRPCResultPayload | undefined {
+  if (
+    !isRecord(value) ||
+    value.protocol_version !== PROTOCOL_VERSION ||
+    !hasOwn(value, 'data') ||
+    !isRecord(value.meta) ||
+    typeof value.meta.cli_version !== 'string' ||
+    value.meta.cli_version.trim() === ''
+  ) {
+    return undefined
+  }
+  return value as JSONRPCResultPayload
+}
+
+function parseCapabilities(value: unknown): ProtocolCapabilities | undefined {
+  if (
+    !isRecord(value) ||
+    !isRecord(value.protocol) ||
+    typeof value.protocol.name !== 'string' ||
+    !Number.isSafeInteger(value.protocol.min_version) ||
+    !Number.isSafeInteger(value.protocol.max_version) ||
+    (value.protocol.min_version as number) < 1 ||
+    (value.protocol.max_version as number) < 1 ||
+    (value.protocol.min_version as number) >
+      (value.protocol.max_version as number) ||
+    typeof value.protocol.transport !== 'string' ||
+    !isRecord(value.cli) ||
+    typeof value.cli.version !== 'string' ||
+    value.cli.version.trim() === '' ||
+    !Array.isArray(value.methods) ||
+    !value.methods.every(
+      (method) => typeof method === 'string' && method.trim() !== '',
+    ) ||
+    new Set(value.methods).size !== value.methods.length ||
+    !isRecord(value.limits) ||
+    !Number.isSafeInteger(value.limits.max_request_bytes) ||
+    (value.limits.max_request_bytes as number) <= 0 ||
+    !Number.isSafeInteger(value.limits.max_response_bytes) ||
+    (value.limits.max_response_bytes as number) <= 0 ||
+    (value.limits.max_json_depth !== undefined &&
+      (!Number.isSafeInteger(value.limits.max_json_depth) ||
+        (value.limits.max_json_depth as number) <= 0))
+  ) {
+    return undefined
+  }
+  return value as ProtocolCapabilities
+}
+
+function responseIDMatches(expected: RequestID, actual: unknown): boolean {
+  return (
+    (typeof actual === 'string' || typeof actual === 'number') &&
+    Object.is(expected, actual)
+  )
+}
+
+function executableIdentity(binaryPath: string): string | undefined {
+  try {
+    const canonicalPath = realpathSync.native(binaryPath)
+    const info = statSync(canonicalPath, { bigint: true })
+    if (!info.isFile()) {
+      return undefined
+    }
+    return [
+      canonicalPath,
+      info.dev,
+      info.ino,
+      info.size,
+      info.mtimeNs,
+      info.ctimeNs,
+    ].join(':')
+  } catch {
+    return undefined
+  }
+}
+
+export class BinaryExecutor implements ProtocolExecutor {
+  readonly logger: Logger
+
+  private readonly configuredCLIPath?: string
+  private binaryPath: string
+  private binaryIdentity?: string
+  private readonly clientVersion: string
+  private readonly defaultTimeoutMs: number
+  private readonly maxOutputBytes: number
+  private readonly runner: ProcessRunner
+  private capabilities?: ProtocolCapabilities
+  private capabilityIdentity?: string
+  private capabilityPromise?: Promise<ProtocolCapabilities>
+
+  constructor(logger: Logger, options: BinaryExecutorOptions = {}) {
     this.logger = logger
-    this._binaryPath = this._chooseBinary()
-    this._agent = this._getAgent()
-    this._grantPermission()
+    this.configuredCLIPath = options.cliPath
+    this.binaryPath = resolveCLIPath(this.configuredCLIPath)
+    this.binaryIdentity = executableIdentity(this.binaryPath)
+    this.clientVersion = options.clientVersion?.trim() || SDK_VERSION
+    this.defaultTimeoutMs = positiveSafeInteger(
+      options.timeoutMs,
+      DEFAULT_TIMEOUT_MS,
+      'timeoutMs',
+    )
+    this.maxOutputBytes = positiveSafeInteger(
+      options.maxBufferBytes,
+      DEFAULT_MAX_OUTPUT_BYTES,
+      'maxBufferBytes',
+    )
+    if (this.maxOutputBytes > MAX_OUTPUT_BYTES) {
+      throw new RangeError(
+        `maxBufferBytes must not exceed ${MAX_OUTPUT_BYTES} bytes`,
+      )
+    }
+    this.runner = options.runner ?? new NodeProcessRunner()
   }
 
-  runCommand<T extends Target, A extends Action>(
-    config: CommandConfig,
-    data: CommandData[T][A]
-  ) {
-    return new Promise<string>((resolve, reject) => {
-      try {
-        const { rawCommand, paramsList } = this._objToCommand(config, data)
-        this.logger.debug(rawCommand)
-        execFile(this._binaryPath, paramsList, (error, stdout, stderr) => {
-          this.logger.debug(stderr || stdout)
-          if (error) {
-            reject(stderr || stdout)
-            return
-          }
-          resolve(stdout)
-        })
-      } catch (error) {
-        reject(error)
+  async execute<T>(
+    method: LockerMethod,
+    context: VaultContext,
+    params: Readonly<Record<string, unknown>>,
+    options: ExecuteOptions = {},
+  ): Promise<T> {
+    this.refreshBinaryIdentity(method)
+    let capabilities = await this.ensureCapabilities(options)
+    this.refreshBinaryIdentity(method)
+    if (this.capabilities !== capabilities) {
+      capabilities = await this.ensureCapabilities(options)
+    }
+    this.requireMethod(capabilities, method)
+    const result = await this.runRPC<T>(
+      method,
+      {
+        context: protocolContext(context, this.clientVersion),
+        ...params,
+      },
+      options,
+      Math.min(
+        capabilities.limits.max_request_bytes,
+        DEFAULT_MAX_REQUEST_BYTES,
+      ),
+      Math.min(capabilities.limits.max_response_bytes, this.maxOutputBytes),
+      Math.min(
+        capabilities.limits.max_json_depth ?? MAX_JSON_DEPTH,
+        MAX_JSON_DEPTH,
+      ),
+    )
+    this.requireCLIVersion(result.cliVersion, capabilities.cli.version, method)
+    return result.data
+  }
+
+  executeSync<T>(
+    method: LockerMethod,
+    context: VaultContext,
+    params: Readonly<Record<string, unknown>>,
+    options: ExecuteOptions = {},
+  ): T {
+    this.refreshBinaryIdentity(method)
+    let capabilities = this.ensureCapabilitiesSync(options)
+    this.refreshBinaryIdentity(method)
+    if (this.capabilities !== capabilities) {
+      capabilities = this.ensureCapabilitiesSync(options)
+    }
+    this.requireMethod(capabilities, method)
+    const result = this.runRPCSync<T>(
+      method,
+      {
+        context: protocolContext(context, this.clientVersion),
+        ...params,
+      },
+      options,
+      Math.min(
+        capabilities.limits.max_request_bytes,
+        DEFAULT_MAX_REQUEST_BYTES,
+      ),
+      Math.min(capabilities.limits.max_response_bytes, this.maxOutputBytes),
+      Math.min(
+        capabilities.limits.max_json_depth ?? MAX_JSON_DEPTH,
+        MAX_JSON_DEPTH,
+      ),
+    )
+    this.requireCLIVersion(result.cliVersion, capabilities.cli.version, method)
+    return result.data
+  }
+
+  private async ensureCapabilities(
+    options: ExecuteOptions,
+  ): Promise<ProtocolCapabilities> {
+    if (this.capabilities && this.capabilityIdentity === this.binaryIdentity) {
+      return this.capabilities
+    }
+    this.capabilities = undefined
+    this.capabilityIdentity = undefined
+    // A caller-specific signal/timeout must never poison unrelated concurrent
+    // callers. Only the default negotiation is shared.
+    if (options.signal !== undefined || options.timeoutMs !== undefined) {
+      const negotiationIdentity = this.binaryIdentity
+      const negotiated = await this.negotiateCapabilities(options)
+      if (negotiationIdentity !== this.binaryIdentity) {
+        throw new LockerTransportError(
+          'Locker CLI executable changed during capability negotiation',
+          {
+            method: 'system.capabilities',
+            requestId: 'binary-identity',
+          },
+        )
       }
-    })
-  }
-
-  runCommandSync<T extends Target, A extends Action>(
-    config: CommandConfig,
-    data: CommandData[T][A]
-  ) {
+      this.capabilities ??= negotiated
+      this.capabilityIdentity ??= negotiationIdentity
+      return this.capabilities
+    }
+    if (!this.capabilityPromise) {
+      this.capabilityPromise = this.negotiateCapabilities(options)
+    }
+    const negotiationIdentity = this.binaryIdentity
     try {
-      const { rawCommand, paramsList } = this._objToCommand(config, data)
-      this.logger.debug(rawCommand)
-      const res = execFileSync(this._binaryPath, paramsList).toString()
-      this.logger.debug(res)
-      return res
+      const negotiated = await this.capabilityPromise
+      if (negotiationIdentity !== this.binaryIdentity) {
+        throw new LockerTransportError(
+          'Locker CLI executable changed during capability negotiation',
+          {
+            method: 'system.capabilities',
+            requestId: 'binary-identity',
+          },
+        )
+      }
+      this.capabilities = negotiated
+      this.capabilityIdentity = negotiationIdentity
+      return this.capabilities
     } catch (error) {
+      this.capabilityPromise = undefined
       throw error
     }
   }
 
-  // -------------------- PRIVATE METHODS --------------------
-
-  private _chooseBinary() {
-    const platform = os.platform()
-    const dirs = this._getBasePath()
-    let filePath = `${dirs.join(path.sep)}${path.sep}bin${path.sep}`
-
-    switch (platform) {
-      case 'darwin':
-        filePath += 'locker_secret'
-        break
-      case 'win32':
-        filePath += 'locker_secret.exe'
-        break
-      default:
-        filePath += 'locker_secret'
+  private ensureCapabilitiesSync(
+    options: ExecuteOptions,
+  ): ProtocolCapabilities {
+    if (this.capabilities && this.capabilityIdentity === this.binaryIdentity) {
+      return this.capabilities
     }
-    return filePath
+    this.capabilities = undefined
+    this.capabilityIdentity = undefined
+    const identityBefore = this.binaryIdentity
+    const raw = this.runRPCSync<unknown>(
+      'system.capabilities',
+      {},
+      options,
+      DEFAULT_MAX_REQUEST_BYTES,
+      this.maxOutputBytes,
+      MAX_JSON_DEPTH,
+    )
+    const identityAfter = executableIdentity(this.binaryPath)
+    if (
+      identityBefore !== undefined &&
+      (identityAfter === undefined || identityAfter !== identityBefore)
+    ) {
+      throw new LockerTransportError(
+        'Locker CLI executable changed during capability negotiation',
+        {
+          method: 'system.capabilities',
+          requestId: 'binary-identity',
+        },
+      )
+    }
+    this.capabilities = this.validateCapabilities(raw.data, raw.cliVersion)
+    this.capabilityIdentity = identityAfter
+    return this.capabilities
   }
 
-  private _getAgent() {
-    const dirs = this._getBasePath()
-    if (dirs.includes('lib')) {
-      dirs.pop()
+  private async negotiateCapabilities(
+    options: ExecuteOptions,
+  ): Promise<ProtocolCapabilities> {
+    const identityBefore = this.binaryIdentity
+    const raw = await this.runRPC<unknown>(
+      'system.capabilities',
+      {},
+      options,
+      DEFAULT_MAX_REQUEST_BYTES,
+      this.maxOutputBytes,
+      MAX_JSON_DEPTH,
+    )
+    const identityAfter = executableIdentity(this.binaryPath)
+    if (
+      identityBefore !== undefined &&
+      (identityAfter === undefined || identityAfter !== identityBefore)
+    ) {
+      throw new LockerTransportError(
+        'Locker CLI executable changed during capability negotiation',
+        {
+          method: 'system.capabilities',
+          requestId: 'binary-identity',
+        },
+      )
     }
-    let packageJSONPath = `${dirs.join(path.sep)}${path.sep}package.json`
-    const packageJSON = require(packageJSONPath)
-    return `NodeJs - ${packageJSON.version}`
+    return this.validateCapabilities(raw.data, raw.cliVersion)
   }
 
-  private _getBasePath() {
-    const dirs = __dirname.split(path.sep)
-    dirs.pop()
-    dirs.pop()
-    if (dirs.includes('cjs') || dirs.includes('esm')) {
-      dirs.pop()
-      dirs.pop()
+  private validateCapabilities(
+    value: unknown,
+    responseCLIVersion: string,
+  ): ProtocolCapabilities {
+    const capabilities = parseCapabilities(value)
+    if (
+      !capabilities ||
+      capabilities.protocol.name !== PROTOCOL_NAME ||
+      capabilities.protocol.transport !== EXPECTED_TRANSPORT ||
+      capabilities.protocol.min_version > PROTOCOL_VERSION ||
+      capabilities.protocol.max_version < PROTOCOL_VERSION
+    ) {
+      throw new LockerTransportError(
+        'Locker CLI returned incompatible protocol capabilities',
+        {
+          method: 'system.capabilities',
+          requestId: 'capabilities',
+        },
+      )
     }
-    return dirs
+    this.requireCLIVersion(
+      responseCLIVersion,
+      capabilities.cli.version,
+      'system.capabilities',
+    )
+    for (const method of REQUIRED_METHODS) {
+      if (!capabilities.methods.includes(method)) {
+        throw new LockerTransportError(
+          'Locker CLI does not expose all required protocol methods',
+          {
+            method: 'system.capabilities',
+            requestId: 'capabilities',
+          },
+        )
+      }
+    }
+    return capabilities
   }
 
-  private _grantPermission() {
+  private requireCLIVersion(
+    actual: string,
+    expected: string,
+    method: string,
+  ): void {
+    if (actual !== expected) {
+      throw new LockerTransportError(
+        'Locker CLI response version differs from negotiated capabilities',
+        {
+          method,
+          requestId: 'cli-version',
+        },
+      )
+    }
+  }
+
+  private requireMethod(
+    capabilities: ProtocolCapabilities,
+    method: LockerMethod,
+  ): void {
+    if (!capabilities.methods.includes(method)) {
+      throw new LockerTransportError(
+        'Locker CLI does not support the requested SDK operation',
+        {
+          method,
+          requestId: 'capabilities',
+        },
+      )
+    }
+  }
+
+  private refreshBinaryIdentity(method: LockerMethod): void {
+    let resolved: string
     try {
-      try {
-        fs.accessSync(this._binaryPath, 0o755)
-      } catch (e) {
-        fs.chmodSync(this._binaryPath, 0o755)
-      }
-    } catch (error) {
-      this.logger.error(error)
-      throw Error('Cannot grant execute permission for binary')
+      resolved = resolveCLIPath(this.configuredCLIPath)
+    } catch (cause) {
+      throw new LockerTransportError(
+        'Locker CLI failed local provenance verification',
+        {
+          method,
+          requestId: 'binary-resolution',
+          cause,
+        },
+      )
+    }
+    const observed = executableIdentity(resolved)
+    if (resolved === this.binaryPath && observed === this.binaryIdentity) {
+      return
+    }
+    const identity = observed
+    if (identity === undefined) {
+      throw new LockerTransportError(
+        'Locker CLI executable identity is unavailable',
+        {
+          method,
+          requestId: 'binary-resolution',
+        },
+      )
+    }
+    if (resolved !== this.binaryPath || identity !== this.binaryIdentity) {
+      this.binaryPath = resolved
+      this.binaryIdentity = identity
+      this.capabilities = undefined
+      this.capabilityIdentity = undefined
+      this.capabilityPromise = undefined
     }
   }
 
-  private _objToCommand<T extends Target, A extends Action>(
-    config: CommandConfig,
-    data: CommandData[T][A]
-  ): {
-    rawCommand: string
-    paramsList: string[]
-  } {
-    const {
-      target,
-      action,
-      accessKeyId,
-      secretAccessKey,
-      apiBase,
-      headers,
-      unsafe,
-      fetch,
-      restTime,
-      output,
-      outputFormat,
-    } = config
+  private processOptions(
+    options: ExecuteOptions,
+    maxResponseBytes: number,
+  ): ProcessExecutionOptions {
+    return {
+      timeoutMs: positiveSafeInteger(
+        options.timeoutMs,
+        this.defaultTimeoutMs,
+        'timeoutMs',
+      ),
+      maxStdoutBytes: Math.min(this.maxOutputBytes, maxResponseBytes),
+      maxStderrBytes: Math.min(this.maxOutputBytes, DEFAULT_MAX_STDERR_BYTES),
+      signal: options.signal,
+    }
+  }
 
-    // Raw command
-    let command = `${target} ${action} --access-key-id "${accessKeyId}" --secret-access-key "${secretAccessKey}" --api-base ${apiBase} --agent "${this._agent}"`
+  private encodeRequest(
+    method: string,
+    params: Readonly<Record<string, unknown>>,
+    maxRequestBytes: number,
+    maxJSONDepth: number,
+  ): { id: RequestID; buffer: Buffer } {
+    const id = randomUUID()
+    const request: JSONRPCRequest = {
+      jsonrpc: JSON_RPC_VERSION,
+      id,
+      method,
+      params,
+    }
+    let encoded: string
+    try {
+      assertJSONDepth(request, maxJSONDepth)
+      encoded = JSON.stringify(request)
+    } catch {
+      throw new LockerTransportError(
+        'Locker SDK request cannot be encoded as protocol JSON',
+        { method, requestId: id },
+      )
+    }
+    const buffer = Buffer.from(encoded, 'utf8')
+    if (buffer.length > maxRequestBytes) {
+      buffer.fill(0)
+      throw new LockerTransportError(
+        'Locker SDK request exceeds the CLI size limit',
+        { method, requestId: id },
+      )
+    }
+    return { id, buffer }
+  }
 
-    // Params list broken from raw command
-    const paramsList = [
-      target,
-      action,
-      '--access-key-id',
-      accessKeyId,
-      '--secret-access-key',
-      secretAccessKey,
-      '--api-base',
-      apiBase,
-      '--agent',
-      this._agent,
-    ]
-
-    // Default output json
-    command += ` --output-format ${outputFormat || 'json'}`
-    paramsList.push('--output-format')
-    paramsList.push(outputFormat || 'json')
-
-    if (data) {
-      const flagObj = camelToFlag(data)
-      Object.keys(flagObj).forEach((k) => {
-        const value = flagObj[k]
-        if (value === '') {
-          command += ` --${k} ""`
-          paramsList.push(`--${k}`, '')
-        } else if (value !== undefined) {
-          command += ` --${k} ${value}`
-          paramsList.push(`--${k}`, value)
-        }
-      })
+  private async runRPC<T>(
+    method: string,
+    params: Readonly<Record<string, unknown>>,
+    options: ExecuteOptions,
+    maxRequestBytes: number,
+    maxResponseBytes: number,
+    maxJSONDepth: number,
+  ): Promise<DecodedRPCResult<T>> {
+    const identityBefore = this.binaryIdentity
+    if (
+      identityBefore !== undefined &&
+      executableIdentity(this.binaryPath) !== identityBefore
+    ) {
+      throw new LockerTransportError(
+        'Locker CLI executable changed before the protocol operation',
+        { method, requestId: 'binary-identity' },
+      )
     }
-    if (output) {
-      command += ` --output ${output}`
-      paramsList.push('--output')
-      paramsList.push(output)
-    }
-    if (unsafe) {
-      command += ' --unsafe'
-      paramsList.push('--unsafe')
-    }
-    if (fetch) {
-      command += ' --fetch'
-      paramsList.push('--fetch')
-    }
-    if (restTime || restTime === 0) {
-      command += ` --resttime ${restTime}`
-      paramsList.push('--resttime')
-      paramsList.push(restTime.toString())
-    }
-    if (headers) {
-      if (typeof headers !== 'object') {
-        throw Error('Invalid headers')
+    const { id, buffer } = this.encodeRequest(
+      method,
+      params,
+      maxRequestBytes,
+      maxJSONDepth,
+    )
+    try {
+      const processResult = await this.runner.run(
+        this.binaryPath,
+        SDK_ARGUMENTS,
+        buffer,
+        this.processOptions(options, maxResponseBytes),
+      )
+      const result = this.decodeResponse<T>(processResult.stdout, method, id)
+      if (
+        identityBefore !== undefined &&
+        executableIdentity(this.binaryPath) !== identityBefore
+      ) {
+        throw new LockerTransportError(
+          'Locker CLI executable changed during the protocol operation',
+          { method, requestId: id },
+        )
       }
-      const headersString = Object.entries(headers)
-        .map((item) => `${item[0]}:${item[1]}`)
-        .join(',')
-      command += ` --headers "${headersString}"`
-      paramsList.push('--headers', headersString)
+      this.logSuccess(method, id, processResult)
+      return result
+    } catch (error) {
+      this.logFailure(method, id, error)
+      throw this.transportError(error, method, id)
+    } finally {
+      buffer.fill(0)
     }
-    return { rawCommand: command, paramsList }
+  }
+
+  private runRPCSync<T>(
+    method: string,
+    params: Readonly<Record<string, unknown>>,
+    options: ExecuteOptions,
+    maxRequestBytes: number,
+    maxResponseBytes: number,
+    maxJSONDepth: number,
+  ): DecodedRPCResult<T> {
+    const identityBefore = this.binaryIdentity
+    if (
+      identityBefore !== undefined &&
+      executableIdentity(this.binaryPath) !== identityBefore
+    ) {
+      throw new LockerTransportError(
+        'Locker CLI executable changed before the protocol operation',
+        { method, requestId: 'binary-identity' },
+      )
+    }
+    const { id, buffer } = this.encodeRequest(
+      method,
+      params,
+      maxRequestBytes,
+      maxJSONDepth,
+    )
+    try {
+      const processResult = this.runner.runSync(
+        this.binaryPath,
+        SDK_ARGUMENTS,
+        buffer,
+        this.processOptions(options, maxResponseBytes),
+      )
+      const result = this.decodeResponse<T>(processResult.stdout, method, id)
+      if (
+        identityBefore !== undefined &&
+        executableIdentity(this.binaryPath) !== identityBefore
+      ) {
+        throw new LockerTransportError(
+          'Locker CLI executable changed during the protocol operation',
+          { method, requestId: id },
+        )
+      }
+      this.logSuccess(method, id, processResult)
+      return result
+    } catch (error) {
+      this.logFailure(method, id, error)
+      throw this.transportError(error, method, id)
+    } finally {
+      buffer.fill(0)
+    }
+  }
+
+  private decodeResponse<T>(
+    stdout: string,
+    method: string,
+    requestId: RequestID,
+  ): DecodedRPCResult<T> {
+    let parsed: unknown
+    try {
+      parsed = parseStrictJSON(stdout)
+    } catch {
+      throw new LockerTransportError(
+        'Locker CLI returned malformed JSON protocol output',
+        { method, requestId },
+      )
+    }
+    if (
+      !isRecord(parsed) ||
+      parsed.jsonrpc !== JSON_RPC_VERSION ||
+      !responseIDMatches(requestId, parsed.id)
+    ) {
+      throw new LockerTransportError(
+        'Locker CLI returned an invalid JSON-RPC envelope',
+        { method, requestId },
+      )
+    }
+
+    const hasResult = hasOwn(parsed, 'result')
+    const hasError = hasOwn(parsed, 'error')
+    if (hasResult === hasError) {
+      throw new LockerTransportError(
+        'Locker CLI response must contain exactly one result or error',
+        { method, requestId },
+      )
+    }
+
+    if (hasError) {
+      const error = parseErrorPayload(parsed.error)
+      if (!error || error.data.protocol_version !== PROTOCOL_VERSION) {
+        throw new LockerTransportError(
+          'Locker CLI returned an invalid JSON-RPC error',
+          { method, requestId },
+        )
+      }
+      throw errorFromResponse(
+        error.code,
+        error.message,
+        error.data.kind,
+        error.data.retryable,
+        requestId,
+      )
+    }
+
+    const result = parseResultPayload(parsed.result)
+    if (!result) {
+      throw new LockerTransportError(
+        'Locker CLI returned an invalid JSON-RPC result',
+        { method, requestId },
+      )
+    }
+    return {
+      data: result.data as T,
+      cliVersion: result.meta.cli_version,
+    }
+  }
+
+  private transportError(
+    error: unknown,
+    method: string,
+    requestId: RequestID,
+  ): unknown {
+    if (error instanceof LockerTransportError || error instanceof LockerError) {
+      return error
+    }
+    if (error instanceof ProcessFailure) {
+      const details = { method, requestId, cause: error.cause }
+      if (error.reason === ProcessFailureReason.ABORTED) {
+        return new LockerCancelledError(
+          'Locker CLI request was cancelled',
+          details,
+        )
+      }
+      if (error.reason === ProcessFailureReason.TIMEOUT) {
+        return new LockerTimeoutError('Locker CLI request timed out', details)
+      }
+      return new LockerTransportError(
+        'Locker CLI could not complete the protocol exchange',
+        details,
+      )
+    }
+    return new LockerTransportError(
+      'Locker SDK could not complete the protocol exchange',
+      { method, requestId, cause: error },
+    )
+  }
+
+  private logSuccess(
+    method: string,
+    requestId: RequestID,
+    result: ProcessExecutionResult,
+  ): void {
+    this.logger.debug({
+      event: 'locker.sdk.request.completed',
+      method,
+      requestId,
+      durationMs: result.durationMs,
+      exitCode: result.exitCode,
+      signal: result.signal,
+    })
+  }
+
+  private logFailure(
+    method: string,
+    requestId: RequestID,
+    error: unknown,
+  ): void {
+    this.logger.error({
+      event: 'locker.sdk.request.failed',
+      method,
+      requestId,
+      errorType:
+        error instanceof Error ? error.constructor.name : 'UnknownError',
+    })
   }
 }

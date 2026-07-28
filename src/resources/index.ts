@@ -1,2 +1,2 @@
-export * from './environment'
-export * from './secret'
+export * from './environment.js'
+export * from './secret.js'
