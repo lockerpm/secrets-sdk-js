@@ -30,8 +30,8 @@
   cached capabilities when the active binary identity changes.
 - Require explicit CLI overrides to be absolute regular non-link files,
   validate executability on POSIX, document the exact cross-SDK credential
-  alias precedence, and include the declared ISC license text in published
-  packages.
+  alias precedence, and include the declared Apache-2.0 license text in
+  published packages.
 
 ### Migration
 

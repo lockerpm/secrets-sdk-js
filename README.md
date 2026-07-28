@@ -289,4 +289,4 @@ keys or plaintext secrets in issue trackers.
 
 ## License
 
-ISC
+Apache-2.0

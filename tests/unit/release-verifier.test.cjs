@@ -46,7 +46,7 @@ async function releaseFixture() {
     bugs: { url: 'https://example.test/issues' },
     scripts: {},
     author: 'CyStack',
-    license: 'ISC',
+    license: 'Apache-2.0',
     devDependencies: {},
   }
   await writeJSON(path.join(root, 'package.json'), packageJSON)
@@ -60,12 +60,15 @@ async function releaseFixture() {
       '': {
         name: 'lockersm',
         version,
-        license: 'ISC',
+        license: 'Apache-2.0',
       },
     },
   })
   await writeJSON(path.join(root, 'locker-cli-release.json'), releaseTrust)
-  await writeFile(path.join(root, 'LICENSE'), 'ISC License\n\nFixture terms.\n')
+  await writeFile(
+    path.join(root, 'LICENSE'),
+    'Apache License\nVersion 2.0\n\nFixture terms.\n',
+  )
   return { root, publicKey, releaseTrust }
 }
 

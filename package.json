@@ -51,7 +51,7 @@
     "install:cli": "node setup.js"
   },
   "author": "CyStack",
-  "license": "ISC",
+  "license": "Apache-2.0",
   "devDependencies": {
     "@types/node": "^22.15.3",
     "prettier": "^3.6.2",
