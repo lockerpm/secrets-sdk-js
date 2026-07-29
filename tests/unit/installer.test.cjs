@@ -5,12 +5,14 @@ const { spawnSync } = require('node:child_process')
 const { createHash, generateKeyPairSync, sign } = require('node:crypto')
 const {
   chmod,
+  cp,
   mkdir,
   mkdtemp,
   readFile,
   readdir,
   stat,
   symlink,
+  utimes,
   writeFile,
 } = require('node:fs/promises')
 const os = require('node:os')
@@ -394,6 +396,151 @@ test('installs a signed release atomically and skips network for six hours', asy
   assert.equal(fixture.calls.length, 4)
 })
 
+test('managed verifier rejects same-size tamper with restored mtime', async () => {
+  const fixture = await signedChannel()
+  const installRoot = await mkdtemp(
+    path.join(os.tmpdir(), 'locker-js-exec-verify-'),
+  )
+  const installed = await fixture.installManagedCLI({
+    trust: fixture.trust,
+    identity: fixture.identity,
+    installRoot,
+    nowSeconds: 1_500_000,
+    downloadBuffer: fixture.downloadBuffer,
+  })
+  const verified = await fixture.verifyManagedCLI({
+    trust: fixture.trust,
+    identity: fixture.identity,
+    installRoot,
+  })
+  assert.equal(verified.path, installed.path)
+
+  const before = await stat(installed.path)
+  const tampered = Buffer.from(fixture.binary)
+  tampered[tampered.length - 1] ^= 1
+  await writeFile(installed.path, tampered)
+  await utimes(installed.path, before.atime, before.mtime)
+  const after = await stat(installed.path)
+  assert.equal(after.size, before.size)
+  assert.equal(Math.round(after.mtimeMs), Math.round(before.mtimeMs))
+
+  await assert.rejects(
+    fixture.verifyManagedCLI({
+      trust: fixture.trust,
+      identity: fixture.identity,
+      installRoot,
+    }),
+    /hash|signature/u,
+  )
+})
+
+test('managed verifier streams a known generation without rereading its detached signature', async () => {
+  const fixture = await signedChannel()
+  const installRoot = await mkdtemp(
+    path.join(os.tmpdir(), 'locker-js-stream-known-'),
+  )
+  const installed = await fixture.installManagedCLI({
+    trust: fixture.trust,
+    identity: fixture.identity,
+    installRoot,
+    nowSeconds: 1_500_000,
+    downloadBuffer: fixture.downloadBuffer,
+  })
+  await writeFile(
+    `${installed.path}.sig`,
+    Buffer.alloc(fixture.artifactSignature.length),
+  )
+
+  const streamed = await fixture.verifyManagedCLI({
+    trust: fixture.trust,
+    identity: fixture.identity,
+    installRoot,
+    expectedGeneration: installed.generation,
+    expectedPath: installed.path,
+  })
+  assert.equal(streamed.path, installed.path)
+  await assert.rejects(
+    fixture.verifyManagedCLI({
+      trust: fixture.trust,
+      identity: fixture.identity,
+      installRoot,
+      expectedGeneration: '0'.repeat(64),
+      expectedPath: installed.path,
+    }),
+    /signature/u,
+  )
+})
+
+test('managed verifier fully checks the detached signature when generation changes', async () => {
+  const initial = await signedChannel()
+  const installRoot = await mkdtemp(
+    path.join(os.tmpdir(), 'locker-js-stream-generation-'),
+  )
+  const installed = await initial.installManagedCLI({
+    trust: initial.trust,
+    identity: initial.identity,
+    installRoot,
+    nowSeconds: 1_500_000,
+    downloadBuffer: initial.downloadBuffer,
+  })
+  const upgraded = await signedChannel({
+    pair: initial.pair,
+    version: '2.0.8',
+    sourceCommit: 'b'.repeat(40),
+    identity: initial.identity,
+  })
+  const current = await upgraded.installManagedCLI({
+    trust: initial.trust,
+    identity: initial.identity,
+    installRoot,
+    nowSeconds: 1_500_000 + initial.CHECK_INTERVAL_SECONDS,
+    downloadBuffer: upgraded.downloadBuffer,
+  })
+  assert.notEqual(current.path, installed.path)
+  await writeFile(
+    `${current.path}.sig`,
+    Buffer.alloc(upgraded.artifactSignature.length),
+  )
+
+  await assert.rejects(
+    upgraded.verifyManagedCLI({
+      trust: initial.trust,
+      identity: initial.identity,
+      installRoot,
+      expectedGeneration: installed.generation,
+      expectedPath: installed.path,
+    }),
+    /signature/u,
+  )
+})
+
+test('managed streaming verification honors cancellation', async () => {
+  const fixture = await signedChannel()
+  const installRoot = await mkdtemp(
+    path.join(os.tmpdir(), 'locker-js-stream-cancel-'),
+  )
+  const installed = await fixture.installManagedCLI({
+    trust: fixture.trust,
+    identity: fixture.identity,
+    installRoot,
+    nowSeconds: 1_500_000,
+    downloadBuffer: fixture.downloadBuffer,
+  })
+  const controller = new AbortController()
+  controller.abort()
+  await assert.rejects(
+    fixture.verifyManagedCLI({
+      trust: fixture.trust,
+      identity: fixture.identity,
+      installRoot,
+      expectedGeneration: installed.generation,
+      expectedPath: installed.path,
+      signal: controller.signal,
+    }),
+    /cancelled/u,
+  )
+})
+
 test('due check fetches signed latest and manifest without pinning a version', async () => {
   const fixture = await signedChannel()
   const installRoot = await mkdtemp(path.join(os.tmpdir(), 'locker-js-due-'))
@@ -774,17 +921,266 @@ test('runtime resolver invokes signed updater and ignores legacy canonical binar
     })}\n`,
     'utf8',
   )
-  const { resolveDefaultCLIPath } = require('../../lib/cjs/src/cli/resolver.js')
+  const {
+    bindCLIPathForExecution,
+    bindCLIPathForExecutionAsync,
+    resolveDefaultCLIPath,
+  } = require('../../lib/cjs/src/cli/resolver.js')
+  const resolverOptions = {
+    environment: {},
+    homeDirectory,
+    packageRoot,
+    installerScript: path.resolve('scripts/install-cli.mjs'),
+    nowMs: nowSeconds * 1000,
+  }
+  assert.equal(resolveDefaultCLIPath(resolverOptions), installed.path)
   assert.equal(
-    resolveDefaultCLIPath({
-      environment: {},
-      homeDirectory,
-      packageRoot,
-      installerScript: path.resolve('scripts/install-cli.mjs'),
-      nowMs: nowSeconds * 1000,
-    }),
+    bindCLIPathForExecution(undefined, resolverOptions),
     installed.path,
   )
+  assert.equal(
+    await bindCLIPathForExecutionAsync(undefined, resolverOptions),
+    installed.path,
+  )
+  const esmResolver = await import(
+    pathToFileURL(path.resolve('lib/esm/src/cli/resolver.js')).href
+  )
+  assert.equal(
+    await esmResolver.bindCLIPathForExecutionAsync(undefined, resolverOptions),
+    installed.path,
+  )
+
+  const before = await stat(installed.path)
+  const tampered = Buffer.from(fixture.binary)
+  tampered[tampered.length - 1] ^= 1
+  await writeFile(installed.path, tampered)
+  await utimes(installed.path, before.atime, before.mtime)
+  const after = await stat(installed.path)
+  assert.equal(after.size, before.size)
+  assert.equal(Math.round(after.mtimeMs), Math.round(before.mtimeMs))
+  await assert.rejects(
+    bindCLIPathForExecutionAsync(undefined, resolverOptions),
+    /hash|signature/u,
+  )
+  assert.throws(
+    () => bindCLIPathForExecution(undefined, resolverOptions),
+    /failed closed/u,
+  )
+})
+
+test('live managed executor verifies capabilities and every operation spawn', async () => {
+  const fixture = await signedChannel()
+  const homeDirectory = await mkdtemp(
+    path.join(os.tmpdir(), 'locker-js-live-exec-home-'),
+  )
+  const packageRoot = await mkdtemp(
+    path.join(os.tmpdir(), 'locker-js-live-exec-package-'),
+  )
+  const installRoot = path.join(homeDirectory, '.locker', 'sdk-cli', 'nodejs')
+  const installed = await fixture.installManagedCLI({
+    trust: fixture.trust,
+    identity: fixture.identity,
+    installRoot,
+    nowSeconds: Math.floor(Date.now() / 1000),
+    downloadBuffer: fixture.downloadBuffer,
+  })
+
+  await mkdir(path.join(packageRoot, 'lib'), { recursive: true })
+  await mkdir(path.join(packageRoot, 'scripts'), { recursive: true })
+  await cp(path.resolve('lib', 'cjs'), path.join(packageRoot, 'lib', 'cjs'), {
+    recursive: true,
+  })
+  await cp(path.resolve('package.json'), path.join(packageRoot, 'package.json'))
+  await cp(
+    path.resolve('scripts', 'install-cli.mjs'),
+    path.join(packageRoot, 'scripts', 'install-cli.mjs'),
+  )
+  await writeFile(
+    path.join(packageRoot, 'locker-cli-release.json'),
+    `${JSON.stringify({
+      schema_version: 2,
+      base_url: fixture.BASE_URL,
+      key_id: fixture.KEY_ID,
+      public_key: fixture.publicKey.toString('base64url'),
+      check_interval_seconds: fixture.CHECK_INTERVAL_SECONDS,
+    })}\n`,
+    'utf8',
+  )
+
+  const child = `
+    const fs = require('node:fs')
+    const { BinaryExecutor } = require(${JSON.stringify(
+      path.join(packageRoot, 'lib', 'cjs', 'src', 'executors', 'binary.js'),
+    )})
+    const methods = [
+      'environment.create', 'environment.get', 'environment.list',
+      'environment.update', 'secret.create', 'secret.get', 'secret.list',
+      'secret.update', 'system.capabilities'
+    ]
+    class Runner {
+      constructor() { this.calls = [] }
+      async run(_executable, _args, stdin) {
+        const request = JSON.parse(stdin.toString('utf8'))
+        this.calls.push(request.method)
+        const data = request.method === 'system.capabilities'
+          ? {
+              protocol: {
+                name: 'locker.sdk', min_version: 1, max_version: 1,
+                transport: 'json-rpc-2.0-stdio'
+              },
+              cli: { version: '1.2.3' },
+              methods,
+              limits: {
+                max_json_depth: 256,
+                max_request_bytes: 20971520,
+                max_response_bytes: 20971520
+              }
+            }
+          : { ok: true }
+        return {
+          stdout: JSON.stringify({
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              protocol_version: 1,
+              data,
+              meta: { cli_version: '1.2.3' }
+            }
+          }),
+          exitCode: 0,
+          signal: null,
+          durationMs: 1
+        }
+      }
+      runSync() { throw new Error('unexpected sync execution') }
+    }
+    const context = {
+      accessKeyId: 'fixture-access',
+      secretAccessKey: 'fixture-secret'
+    }
+    ;(async () => {
+      const runner = new Runner()
+      const executor = new BinaryExecutor(
+        { debug() {}, error() {} },
+        { clientVersion: '9.8.7', runner }
+      )
+      await executor.execute('secret.list', context, {})
+      await executor.execute('secret.list', context, {})
+      if (runner.calls.join(',') !==
+          'system.capabilities,secret.list,secret.list') {
+        throw new Error('managed spawn verification call sequence is invalid')
+      }
+      const binaryPath = ${JSON.stringify(installed.path)}
+      const before = fs.statSync(binaryPath)
+      const bytes = fs.readFileSync(binaryPath)
+      bytes[bytes.length - 1] ^= 1
+      fs.writeFileSync(binaryPath, bytes)
+      fs.utimesSync(binaryPath, before.atime, before.mtime)
+      let rejected = false
+      try {
+        await executor.execute('secret.list', context, {})
+      } catch {
+        rejected = true
+      }
+      if (!rejected || runner.calls.length !== 3) {
+        throw new Error('tampered managed CLI reached the protocol runner')
+      }
+      process.stdout.write(JSON.stringify({
+        calls: runner.calls.length,
+        rejected
+      }))
+    })().catch((error) => {
+      console.error(error)
+      process.exitCode = 1
+    })
+  `
+  const environment = {
+    ...process.env,
+    HOME: homeDirectory,
+    USERPROFILE: homeDirectory,
+    LOCKER_CLI_PATH: '',
+  }
+  const result = spawnSync(process.execPath, ['-e', child], {
+    encoding: 'utf8',
+    env: environment,
+    shell: false,
+    timeout: 30_000,
+    windowsHide: true,
+  })
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(JSON.parse(result.stdout), {
+    calls: 3,
+    rejected: true,
+  })
+})
+
+test('runtime resolver bounds the signed updater by the caller budget', async () => {
+  const directory = await mkdtemp(
+    path.join(os.tmpdir(), 'locker-js-resolver-deadline-'),
+  )
+  const helper = path.join(directory, 'slow-helper.mjs')
+  await writeFile(
+    helper,
+    'await new Promise((resolve) => setTimeout(resolve, 10_000));\n',
+    'utf8',
+  )
+  const {
+    CLIResolutionTimeoutError,
+    resolveDefaultCLIPath,
+  } = require('../../lib/cjs/src/cli/resolver.js')
+
+  assert.throws(
+    () =>
+      resolveDefaultCLIPath({
+        environment: {},
+        homeDirectory: directory,
+        packageRoot: path.resolve('.'),
+        installerScript: helper,
+        nowMs: Date.now(),
+        timeoutMs: 25,
+      }),
+    CLIResolutionTimeoutError,
+  )
+})
+
+test('async execution verification honors timeout and in-flight cancellation', async () => {
+  const directory = await mkdtemp(
+    path.join(os.tmpdir(), 'locker-js-verifier-budget-'),
+  )
+  const verifier = path.join(directory, 'blocked-verifier.mjs')
+  await writeFile(
+    verifier,
+    'export async function verifyManagedCLI() { await new Promise(() => {}) }\n',
+    'utf8',
+  )
+  const {
+    bindCLIPathForExecutionAsync,
+    CLIResolutionCancelledError,
+    CLIResolutionTimeoutError,
+  } = require('../../lib/cjs/src/cli/resolver.js')
+  const options = {
+    environment: {},
+    homeDirectory: directory,
+    packageRoot: path.resolve('.'),
+    installerScript: verifier,
+  }
+
+  await assert.rejects(
+    bindCLIPathForExecutionAsync(undefined, {
+      ...options,
+      timeoutMs: 25,
+    }),
+    CLIResolutionTimeoutError,
+  )
+
+  const controller = new AbortController()
+  const pending = bindCLIPathForExecutionAsync(undefined, {
+    ...options,
+    signal: controller.signal,
+    timeoutMs: 5_000,
+  })
+  setTimeout(() => controller.abort(), 25)
+  await assert.rejects(pending, CLIResolutionCancelledError)
 })
 
 test('runtime resolver binds trust and helper to its own package, not cwd', async () => {
@@ -847,6 +1243,7 @@ test('runtime resolver binds trust and helper to its own package, not cwd', asyn
       '}',
       'process.stdout.write(JSON.stringify({',
       '  checked: true,',
+      `  generation: ${JSON.stringify('a'.repeat(64))},`,
       '  next_check_at_unix: Math.floor(Date.now() / 1000) + 3600,',
       '  path: binaryPath,',
       '  reused: false,',

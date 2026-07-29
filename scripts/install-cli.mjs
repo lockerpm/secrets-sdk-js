@@ -1336,6 +1336,43 @@ async function acceptLatest(installRoot, accepted, latest) {
 }
 
 async function verifyCachedRelease(installRoot, trust, identity, current) {
+  const cached = await loadCachedReleaseMetadata(
+    installRoot,
+    trust,
+    identity,
+    current,
+  )
+  const binary = await readRegularFile(
+    cached.path,
+    MAX_ARTIFACT_BYTES,
+    cached.artifact.size,
+    'cached Locker CLI artifact',
+  )
+  const signature = await readRegularFile(
+    `${cached.path}.sig`,
+    SIGNATURE_BYTES,
+    SIGNATURE_BYTES,
+    'cached Locker CLI artifact signature',
+  )
+  try {
+    if (sha256(binary) !== cached.artifact.sha256) {
+      throw new Error('cached Locker CLI artifact hash is invalid')
+    }
+    verifyEd25519(binary, signature, trust)
+    verifyBinaryHeader(binary, identity)
+  } finally {
+    binary.fill(0)
+    signature.fill(0)
+  }
+  return cached
+}
+
+async function loadCachedReleaseMetadata(
+  installRoot,
+  trust,
+  identity,
+  current,
+) {
   validateCurrent(current)
   const releaseDirectory = path.join(installRoot, 'releases', current.version)
   const releaseInfo = await fs.lstat(releaseDirectory)
@@ -1369,28 +1406,6 @@ async function verifyCachedRelease(installRoot, trust, identity, current) {
       throw new Error('cached Locker CLI artifact pointer is invalid')
     }
     const binaryPath = path.join(releaseDirectory, artifact.filename)
-    const binary = await readRegularFile(
-      binaryPath,
-      MAX_ARTIFACT_BYTES,
-      artifact.size,
-      'cached Locker CLI artifact',
-    )
-    const signature = await readRegularFile(
-      path.join(releaseDirectory, `${artifact.filename}.sig`),
-      SIGNATURE_BYTES,
-      SIGNATURE_BYTES,
-      'cached Locker CLI artifact signature',
-    )
-    try {
-      if (sha256(binary) !== artifact.sha256) {
-        throw new Error('cached Locker CLI artifact hash is invalid')
-      }
-      verifyEd25519(binary, signature, trust)
-      verifyBinaryHeader(binary, identity)
-    } finally {
-      binary.fill(0)
-      signature.fill(0)
-    }
     if (process.platform !== 'win32') {
       await fs.access(binaryPath, fsConstants.X_OK)
     }
@@ -1414,6 +1429,154 @@ async function verifyCachedRelease(installRoot, trust, identity, current) {
     }
   } finally {
     manifestBytes.fill(0)
+  }
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) {
+    throw new Error('Locker CLI local verification was cancelled', {
+      cause: signal.reason,
+    })
+  }
+}
+
+function sameStableFile(before, after) {
+  return (
+    sameFile(before, after) &&
+    before.mtimeMs === after.mtimeMs &&
+    before.ctimeMs === after.ctimeMs
+  )
+}
+
+async function verifyBinaryHeaderFromHandle(handle, artifactSize, identity) {
+  if (identity.os === 'linux') {
+    const header = Buffer.allocUnsafe(20)
+    const { bytesRead } = await handle.read(header, 0, header.length, 0)
+    try {
+      if (bytesRead !== header.length) {
+        throw new Error('Locker CLI ELF header is truncated')
+      }
+      verifyBinaryHeader(header, identity)
+    } finally {
+      header.fill(0)
+    }
+    return
+  }
+  if (identity.os === 'darwin') {
+    const header = Buffer.allocUnsafe(8)
+    const { bytesRead } = await handle.read(header, 0, header.length, 0)
+    try {
+      if (bytesRead !== header.length) {
+        throw new Error('Locker CLI Mach-O header is truncated')
+      }
+      verifyBinaryHeader(header, identity)
+    } finally {
+      header.fill(0)
+    }
+    return
+  }
+  const dosHeader = Buffer.allocUnsafe(64)
+  const peHeader = Buffer.allocUnsafe(6)
+  try {
+    const dos = await handle.read(dosHeader, 0, dosHeader.length, 0)
+    if (
+      dos.bytesRead !== dosHeader.length ||
+      dosHeader[0] !== 0x4d ||
+      dosHeader[1] !== 0x5a
+    ) {
+      throw new Error('Locker CLI artifact is not an amd64 PE executable')
+    }
+    const peOffset = dosHeader.readUInt32LE(60)
+    if (peOffset < 64 || peOffset > artifactSize - peHeader.length) {
+      throw new Error('Locker CLI PE architecture is invalid')
+    }
+    const pe = await handle.read(peHeader, 0, peHeader.length, peOffset)
+    if (
+      pe.bytesRead !== peHeader.length ||
+      peHeader.subarray(0, 4).toString('binary') !== 'PE\x00\x00' ||
+      peHeader.readUInt16LE(4) !== 0x8664
+    ) {
+      throw new Error('Locker CLI PE architecture is invalid')
+    }
+  } finally {
+    dosHeader.fill(0)
+    peHeader.fill(0)
+  }
+}
+
+async function verifyArtifactStream(filePath, artifact, identity, signal) {
+  throwIfAborted(signal)
+  const before = await fs.lstat(filePath)
+  if (
+    before.isSymbolicLink() ||
+    !before.isFile() ||
+    before.size !== artifact.size ||
+    before.size < 1 ||
+    before.size > MAX_ARTIFACT_BYTES
+  ) {
+    throw new Error('cached Locker CLI artifact is not a safe regular file')
+  }
+  if (process.platform !== 'win32') {
+    if (
+      typeof process.geteuid !== 'function' ||
+      before.uid !== process.geteuid() ||
+      (before.mode & 0o077) !== 0 ||
+      (before.mode & 0o111) === 0
+    ) {
+      throw new Error(
+        'cached Locker CLI artifact ownership or permissions are unsafe',
+      )
+    }
+  }
+  const noFollow = fsConstants.O_NOFOLLOW ?? 0
+  const handle = await fs.open(filePath, fsConstants.O_RDONLY | noFollow)
+  const buffer = Buffer.allocUnsafe(64 * 1024)
+  const expectedDigest = Buffer.from(artifact.sha256, 'hex')
+  try {
+    const opened = await handle.stat()
+    if (!sameFile(before, opened)) {
+      throw new Error('cached Locker CLI artifact changed while opening')
+    }
+    throwIfAborted(signal)
+    await verifyBinaryHeaderFromHandle(handle, artifact.size, identity)
+    const digest = createHash('sha256')
+    let offset = 0
+    while (offset < artifact.size) {
+      throwIfAborted(signal)
+      const length = Math.min(buffer.length, artifact.size - offset)
+      const { bytesRead } = await handle.read(buffer, 0, length, offset)
+      if (bytesRead === 0) {
+        break
+      }
+      digest.update(buffer.subarray(0, bytesRead))
+      offset += bytesRead
+    }
+    const actualDigest = digest.digest()
+    try {
+      if (
+        offset !== artifact.size ||
+        expectedDigest.length !== actualDigest.length ||
+        !timingSafeEqual(expectedDigest, actualDigest)
+      ) {
+        throw new Error('cached Locker CLI artifact hash is invalid')
+      }
+    } finally {
+      actualDigest.fill(0)
+    }
+    throwIfAborted(signal)
+    const after = await handle.stat()
+    const pathAfter = await fs.lstat(filePath)
+    if (
+      !sameStableFile(opened, after) ||
+      pathAfter.isSymbolicLink() ||
+      !sameStableFile(opened, pathAfter)
+    ) {
+      throw new Error('cached Locker CLI artifact changed while reading')
+    }
+  } finally {
+    buffer.fill(0)
+    expectedDigest.fill(0)
+    await handle.close()
   }
 }
 
@@ -1485,6 +1648,93 @@ async function loadCached(installRoot, trust, identity) {
     return undefined
   }
   return await verifyCachedRelease(installRoot, trust, identity, current)
+}
+
+// Re-derive the selected managed executable from its locally cached signed
+// manifest. Known immutable generations receive a bounded-memory artifact
+// size/SHA-256/header pass; a changed generation additionally receives the
+// full detached Ed25519 artifact check. This path is intentionally
+// network-free so SDK runtimes can invoke it immediately before every managed
+// CLI spawn without turning each secret read into an update check.
+export async function verifyManagedCLI(options = {}) {
+  const packageRoot =
+    options.packageRoot ?? fileURLToPath(new URL('../', import.meta.url))
+  const configurationPath =
+    options.configurationPath ??
+    path.join(packageRoot, 'locker-cli-release.json')
+  const trust = options.trust
+    ? validateTrust(options.trust)
+    : await loadReleaseTrust(configurationPath)
+  const identity =
+    options.identity ??
+    platformIdentity(options.nodePlatform, options.nodeArchitecture)
+  const homeDirectory = options.homeDirectory ?? os.homedir()
+  const lockerRoot = path.join(homeDirectory, '.locker')
+  const sdkRoot = path.join(lockerRoot, 'sdk-cli')
+  const installRoot = options.installRoot ?? path.join(sdkRoot, 'nodejs')
+
+  if (options.installRoot === undefined) {
+    await ensurePrivateDirectory(lockerRoot)
+    await ensurePrivateDirectory(sdkRoot)
+  }
+  await ensurePrivateDirectory(installRoot)
+  throwIfAborted(options.signal)
+  const pointerPath = path.join(installRoot, 'locker.current.json')
+  const current = await readCanonicalLocalJSON(
+    pointerPath,
+    CURRENT_FIELDS,
+    'Locker CLI current pointer',
+  )
+  if (!current) {
+    throw new Error('verified Locker CLI managed cache is absent')
+  }
+  const cached = await loadCachedReleaseMetadata(
+    installRoot,
+    trust,
+    identity,
+    current,
+  )
+  if (!cached) {
+    throw new Error('verified Locker CLI managed cache is absent')
+  }
+  const expectedPath =
+    typeof options.expectedPath === 'string'
+      ? path.resolve(options.expectedPath)
+      : undefined
+  const expectedGeneration =
+    typeof options.expectedGeneration === 'string'
+      ? options.expectedGeneration
+      : undefined
+  if (
+    expectedPath === cached.path &&
+    expectedGeneration === current.manifest_sha256
+  ) {
+    await verifyArtifactStream(
+      cached.path,
+      cached.artifact,
+      identity,
+      options.signal,
+    )
+  } else {
+    const fullyVerified = await verifyCachedRelease(
+      installRoot,
+      trust,
+      identity,
+      current,
+    )
+    if (fullyVerified.path !== cached.path) {
+      throw new Error('Locker CLI managed generation changed while verifying')
+    }
+  }
+  throwIfAborted(options.signal)
+  return {
+    generation: current.manifest_sha256,
+    path: cached.path,
+    reused: true,
+    checked: false,
+    nextCheckAtUnix: 0,
+    message: `Verified cached Locker CLI ${cached.current.version}`,
+  }
 }
 
 async function publishRelease(
@@ -1585,6 +1835,7 @@ async function cachedNetworkFallback(
     version: cached.current.version,
   })
   return {
+    generation: cached.current.manifest_sha256,
     path: cached.path,
     reused: true,
     checked: false,
@@ -1688,6 +1939,7 @@ export async function installManagedCLI(options = {}) {
         : undefined
     if (cached && nextCheckAtUnix !== undefined) {
       return {
+        generation: cached.current.manifest_sha256,
         path: cached.path,
         reused: true,
         checked: false,
@@ -1768,6 +2020,7 @@ export async function installManagedCLI(options = {}) {
             version: latest.version,
           })
           return {
+            generation: cached.current.manifest_sha256,
             path: cached.path,
             reused: true,
             checked: true,
@@ -1832,6 +2085,7 @@ export async function installManagedCLI(options = {}) {
               version: latest.version,
             })
             return {
+              generation: installed.current.manifest_sha256,
               path: installed.path,
               reused: false,
               checked: true,
@@ -1856,30 +2110,56 @@ export async function installManagedCLI(options = {}) {
 }
 
 function parseArguments(arguments_) {
-  const options = { managedJSON: false }
+  const options = { managedJSON: false, verifyManagedJSON: false }
   for (let index = 0; index < arguments_.length; index += 1) {
     const name = arguments_[index]
     if (name === '--managed-json') {
       options.managedJSON = true
       continue
     }
+    if (name === '--verify-managed-json') {
+      options.verifyManagedJSON = true
+      continue
+    }
     const value = arguments_[index + 1]
-    if (!['--package-root', '--home'].includes(name) || value === undefined) {
+    if (
+      ![
+        '--package-root',
+        '--home',
+        '--expected-path',
+        '--expected-generation',
+      ].includes(name) ||
+      value === undefined
+    ) {
       throw new Error('Locker CLI installer arguments are invalid')
     }
-    options[name === '--package-root' ? 'packageRoot' : 'homeDirectory'] = value
+    const field =
+      name === '--package-root'
+        ? 'packageRoot'
+        : name === '--home'
+          ? 'homeDirectory'
+          : name === '--expected-path'
+            ? 'expectedPath'
+            : 'expectedGeneration'
+    options[field] = value
     index += 1
+  }
+  if (options.managedJSON && options.verifyManagedJSON) {
+    throw new Error('Locker CLI installer modes are mutually exclusive')
   }
   return options
 }
 
 async function main() {
   const options = parseArguments(process.argv.slice(2))
-  const result = await installManagedCLI(options)
-  if (options.managedJSON) {
+  const result = options.verifyManagedJSON
+    ? await verifyManagedCLI(options)
+    : await installManagedCLI(options)
+  if (options.managedJSON || options.verifyManagedJSON) {
     process.stdout.write(
       `${JSON.stringify({
         checked: result.checked,
+        generation: result.generation,
         next_check_at_unix: result.nextCheckAtUnix,
         path: result.path,
         reused: result.reused,

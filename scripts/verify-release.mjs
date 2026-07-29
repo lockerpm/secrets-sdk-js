@@ -5,8 +5,8 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
-const SEMVER_PATTERN =
-  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$/
+const RELEASE_TAG_PATTERN =
+  /^v(?<version>(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*))$/
 const MAX_JSON_BYTES = 1024 * 1024
 const MAX_LICENSE_BYTES = 64 * 1024
 const MAX_ARTIFACT_BYTES = 128 * 1024 * 1024
@@ -350,24 +350,57 @@ function validateTarChecksum(header) {
 
 function tarString(bytes) {
   const zero = bytes.indexOf(0)
-  return bytes.subarray(0, zero < 0 ? bytes.length : zero).toString('utf8')
+  if (zero >= 0 && !bytes.subarray(zero + 1).every((value) => value === 0)) {
+    throw new VerificationError(
+      'npm package tar path contains nonzero bytes after its terminator',
+    )
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(
+      bytes.subarray(0, zero < 0 ? bytes.length : zero),
+    )
+  } catch (cause) {
+    throw new VerificationError('npm package tar path is not valid UTF-8', {
+      cause,
+    })
+  }
 }
 
 function parseTar(bytes) {
   const entries = new Map()
+  const caseInsensitivePaths = new Set()
   let offset = 0
   while (offset + 512 <= bytes.length) {
     const header = bytes.subarray(offset, offset + 512)
     if (header.every((value) => value === 0)) {
+      if (
+        offset + 1024 > bytes.length ||
+        !bytes
+          .subarray(offset + 512, offset + 1024)
+          .every((value) => value === 0) ||
+        !bytes.subarray(offset + 1024).every((value) => value === 0)
+      ) {
+        throw new VerificationError(
+          'npm package tar has an invalid or nonzero trailer',
+        )
+      }
       return entries
     }
     validateTarChecksum(header)
     const prefix = tarString(header.subarray(345, 500))
     const name = tarString(header.subarray(0, 100))
     const fullName = prefix ? `${prefix}/${name}` : name
+    const pathParts = fullName.split('/')
+    const normalizedName = path.posix.normalize(fullName)
     if (
+      fullName.includes('\\') ||
+      fullName.includes('\0') ||
+      /[\u0000-\u001f\u007f]/u.test(fullName) ||
+      normalizedName !== fullName ||
+      fullName.endsWith('/') ||
       !fullName.startsWith('package/') ||
-      fullName.split('/').some((part) => part === '..')
+      pathParts.length < 2 ||
+      pathParts.some((part) => part === '' || part === '.' || part === '..')
     ) {
       throw new VerificationError(
         `npm package contains unsafe path ${JSON.stringify(fullName)}`,
@@ -378,43 +411,48 @@ function parseTar(bytes) {
         `npm package contains duplicate path ${JSON.stringify(fullName)}`,
       )
     }
+    const caseInsensitivePath = fullName.toLocaleLowerCase('en-US')
+    if (caseInsensitivePaths.has(caseInsensitivePath)) {
+      throw new VerificationError(
+        `npm package contains a case-colliding path ${JSON.stringify(fullName)}`,
+      )
+    }
+    caseInsensitivePaths.add(caseInsensitivePath)
     const size = parseTarOctal(header.subarray(124, 136), 'size')
     const dataStart = offset + 512
     const dataEnd = dataStart + size
-    if (dataEnd > bytes.length) {
+    const paddedEnd = dataStart + Math.ceil(size / 512) * 512
+    if (
+      !Number.isSafeInteger(dataEnd) ||
+      !Number.isSafeInteger(paddedEnd) ||
+      dataEnd > bytes.length ||
+      paddedEnd > bytes.length
+    ) {
       throw new VerificationError('npm package tar entry is truncated')
     }
     const type = header[156]
-    if (type === 0 || type === 0x30) {
-      entries.set(fullName, bytes.subarray(dataStart, dataEnd))
-    } else {
-      entries.set(fullName, undefined)
+    if (type !== 0 && type !== 0x30) {
+      throw new VerificationError(
+        `npm package contains a non-regular entry ${JSON.stringify(fullName)}`,
+      )
     }
-    offset = dataStart + Math.ceil(size / 512) * 512
+    if (!header.subarray(157, 257).every((value) => value === 0)) {
+      throw new VerificationError(
+        `npm package regular entry has a link target ${JSON.stringify(fullName)}`,
+      )
+    }
+    if (!bytes.subarray(dataEnd, paddedEnd).every((value) => value === 0)) {
+      throw new VerificationError(
+        `npm package entry padding is nonzero ${JSON.stringify(fullName)}`,
+      )
+    }
+    entries.set(fullName, bytes.subarray(dataStart, dataEnd))
+    offset = paddedEnd
   }
   throw new VerificationError('npm package tar terminator is missing')
 }
 
-function canonicalJSON(value) {
-  if (Array.isArray(value)) {
-    return value.map(canonicalJSON)
-  }
-  if (typeof value === 'object' && value !== null) {
-    return Object.fromEntries(
-      Object.keys(value)
-        .sort()
-        .map((key) => [key, canonicalJSON(value[key])]),
-    )
-  }
-  return value
-}
-
-export async function verifyArtifact(
-  artifactPath,
-  packageJSON,
-  releaseTrust,
-  licenseBytes,
-) {
+export async function verifyArtifact(artifactPath, root, packageJSON) {
   const expectedName = `lockersm-${packageJSON.version}.tgz`
   if (path.basename(artifactPath) !== expectedName) {
     throw new VerificationError(
@@ -435,35 +473,88 @@ export async function verifyArtifact(
     })
   }
   const entries = parseTar(archive)
-  const packagedJSON = entries.get('package/package.json')
-  const packagedTrust = entries.get('package/locker-cli-release.json')
-  const packagedLicense = entries.get('package/LICENSE')
-  if (!packagedJSON || !packagedTrust || !packagedLicense) {
+  const expectedPaths = [
+    'LICENSE',
+    'README.md',
+    'locker-cli-release.json',
+    'package.json',
+    'scripts/install-cli.mjs',
+    'setup.js',
+  ]
+  const pendingDirectories = ['lib']
+  while (pendingDirectories.length > 0) {
+    const relativeDirectory = pendingDirectories.pop()
+    const directory = path.join(root, relativeDirectory)
+    let children
+    try {
+      children = await fs.readdir(directory, { withFileTypes: true })
+    } catch (cause) {
+      throw new VerificationError(
+        `npm package source directory is unavailable: ${relativeDirectory}`,
+        { cause },
+      )
+    }
+    children.sort((left, right) => left.name.localeCompare(right.name, 'en-US'))
+    for (const child of children) {
+      const relativePath = path.posix.join(relativeDirectory, child.name)
+      const absolutePath = path.join(root, ...relativePath.split('/'))
+      const metadata = await fs.lstat(absolutePath)
+      if (metadata.isSymbolicLink()) {
+        throw new VerificationError(
+          `npm package source contains a symlink: ${relativePath}`,
+        )
+      }
+      if (metadata.isDirectory()) {
+        pendingDirectories.push(relativePath)
+      } else if (metadata.isFile()) {
+        expectedPaths.push(relativePath)
+      } else {
+        throw new VerificationError(
+          `npm package source contains a special entry: ${relativePath}`,
+        )
+      }
+    }
+  }
+
+  expectedPaths.sort()
+  const packagedPaths = [...entries.keys()]
+    .map((entry) => entry.slice('package/'.length))
+    .sort()
+  if (
+    expectedPaths.length !== packagedPaths.length ||
+    expectedPaths.some((entry, index) => entry !== packagedPaths[index])
+  ) {
     throw new VerificationError(
-      'npm package is missing package.json, CLI trust root, or LICENSE',
+      'npm package file list differs from the reviewed source',
     )
   }
-  const parsedPackage = parseStrictJSON(
-    new TextDecoder('utf-8', { fatal: true }).decode(packagedJSON),
-  )
-  const parsedTrust = parseStrictJSON(
-    new TextDecoder('utf-8', { fatal: true }).decode(packagedTrust),
-  )
-  if (
-    JSON.stringify(canonicalJSON(parsedPackage)) !==
-      JSON.stringify(canonicalJSON(packageJSON)) ||
-    JSON.stringify(canonicalJSON(parsedTrust)) !==
-      JSON.stringify(canonicalJSON(releaseTrust)) ||
-    !packagedLicense.equals(licenseBytes)
-  ) {
-    throw new VerificationError('npm package metadata differs from source')
+
+  for (const relativePath of expectedPaths) {
+    const source = await readRegularBytes(
+      path.join(root, ...relativePath.split('/')),
+      MAX_ARTIFACT_BYTES,
+      `npm package source ${relativePath}`,
+    )
+    const packaged = entries.get(`package/${relativePath}`)
+    if (
+      packaged === undefined ||
+      source.length !== packaged.length ||
+      !timingSafeEqual(source, packaged)
+    ) {
+      throw new VerificationError(
+        `npm package bytes differ from source: ${relativePath}`,
+      )
+    }
   }
 }
 
 export async function verifyRelease({ root, tag, releasePublicKey, artifact }) {
   const resolvedRoot = path.resolve(root)
-  if (!SEMVER_PATTERN.test(tag)) {
-    throw new VerificationError('release tag is not strict SemVer')
+  const tagMatch = RELEASE_TAG_PATTERN.exec(tag)
+  if (!tagMatch) {
+    throw new VerificationError(
+      'release tag is not canonical vMAJOR.MINOR.PATCH',
+    )
   }
   const packageJSON = await readJSON(
     path.join(resolvedRoot, 'package.json'),
@@ -492,7 +583,7 @@ export async function verifyRelease({ root, tag, releasePublicKey, artifact }) {
     throw new VerificationError('package name must be lockersm')
   }
   const version = requireString(packageJSON.version, 'package version')
-  if (version !== tag) {
+  if (version !== tagMatch.groups.version) {
     throw new VerificationError(
       'release tag must exactly equal the package version',
     )
@@ -509,11 +600,7 @@ export async function verifyRelease({ root, tag, releasePublicKey, artifact }) {
     ]),
     'package-lock.json',
   )
-  const licenseBytes = await validateLicense(
-    resolvedRoot,
-    packageJSON,
-    packageLock,
-  )
+  await validateLicense(resolvedRoot, packageJSON, packageLock)
 
   const releaseTrust = await readJSON(
     path.join(resolvedRoot, 'locker-cli-release.json'),
@@ -522,12 +609,7 @@ export async function verifyRelease({ root, tag, releasePublicKey, artifact }) {
   )
   validateReleaseTrust(releaseTrust, releasePublicKey)
   if (artifact) {
-    await verifyArtifact(
-      path.resolve(artifact),
-      packageJSON,
-      releaseTrust,
-      licenseBytes,
-    )
+    await verifyArtifact(path.resolve(artifact), resolvedRoot, packageJSON)
   }
 }
 

@@ -116,6 +116,23 @@ class FakeRunner {
   }
 }
 
+class DelayedRunner extends FakeRunner {
+  constructor(delayMs) {
+    super((request) => resultResponse(request, { ok: true }))
+    this.delayMs = delayMs
+  }
+
+  async run(executable, args, stdin, options) {
+    const waitMs = Math.min(this.delayMs, options.timeoutMs)
+    await new Promise((resolve) => setTimeout(resolve, waitMs))
+    if (options.timeoutMs < this.delayMs) {
+      stdin.fill(0)
+      throw new ProcessFailure(ProcessFailureReason.TIMEOUT)
+    }
+    return this.invoke(executable, args, stdin, options)
+  }
+}
+
 function executorFor(runner) {
   return new BinaryExecutor(new Logger(LogLevel.NONE), {
     cliPath: realpathSync.native(process.execPath),
@@ -188,6 +205,23 @@ test('negotiates capabilities once and sends only sdk in argv', async () => {
       max_age_seconds: 0,
     },
   })
+})
+
+test('one timeout budget covers capability negotiation and operation', async () => {
+  const runner = new DelayedRunner(30)
+  const executor = executorFor(runner)
+
+  await assert.rejects(
+    executor.execute(
+      'secret.get',
+      context,
+      { key: 'DATABASE_PASSWORD' },
+      { timeoutMs: 45 },
+    ),
+    LockerTimeoutError,
+  )
+  assert.equal(runner.calls.length, 1)
+  assert.equal(runner.calls[0].request.method, 'system.capabilities')
 })
 
 test('sync transport also negotiates and uses the same envelope', () => {

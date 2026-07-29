@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { realpathSync, statSync } from 'node:fs'
+import { performance } from 'node:perf_hooks'
 import process from 'node:process'
 import {
   DEFAULT_MAX_REQUEST_BYTES,
@@ -22,7 +23,13 @@ import {
   errorFromResponse,
   type RequestID,
 } from '../abstraction/errors.js'
-import { resolveCLIPath } from '../cli/resolver.js'
+import {
+  bindCLIPathForExecution,
+  bindCLIPathForExecutionAsync,
+  CLIResolutionCancelledError,
+  CLIResolutionTimeoutError,
+  resolveCLIPath,
+} from '../cli/resolver.js'
 import { Logger } from '../utils/logger.js'
 import {
   MAX_JSON_DEPTH,
@@ -41,6 +48,7 @@ import {
 
 const SDK_ARGUMENTS = Object.freeze(['sdk'] as const)
 const DEFAULT_TIMEOUT_MS = 30_000
+const MAX_TIMEOUT_MS = 2_147_483_647
 const DEFAULT_MAX_OUTPUT_BYTES = DEFAULT_MAX_RESPONSE_BYTES
 const MAX_OUTPUT_BYTES = DEFAULT_MAX_RESPONSE_BYTES
 const DEFAULT_MAX_STDERR_BYTES = 64 * 1024
@@ -87,6 +95,17 @@ type JSONRPCResultPayload = {
 type DecodedRPCResult<T> = {
   data: T
   cliVersion: string
+}
+
+type ExecutionBudget = {
+  deadlineMs: number
+  signal?: AbortSignal
+}
+
+type ExecutionBinding = {
+  path: string
+  identity: string
+  options: ExecuteOptions
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -256,14 +275,23 @@ export class BinaryExecutor implements ProtocolExecutor {
   constructor(logger: Logger, options: BinaryExecutorOptions = {}) {
     this.logger = logger
     this.configuredCLIPath = options.cliPath
-    this.binaryPath = resolveCLIPath(this.configuredCLIPath)
-    this.binaryIdentity = executableIdentity(this.binaryPath)
     this.clientVersion = options.clientVersion?.trim() || SDK_VERSION
     this.defaultTimeoutMs = positiveSafeInteger(
       options.timeoutMs,
       DEFAULT_TIMEOUT_MS,
       'timeoutMs',
     )
+    if (this.defaultTimeoutMs > MAX_TIMEOUT_MS) {
+      throw new RangeError(`timeoutMs must not exceed ${MAX_TIMEOUT_MS}`)
+    }
+    try {
+      this.binaryPath = resolveCLIPath(this.configuredCLIPath, {
+        timeoutMs: this.defaultTimeoutMs,
+      })
+    } catch (cause) {
+      this.throwResolutionError(cause, 'system.capabilities')
+    }
+    this.binaryIdentity = executableIdentity(this.binaryPath)
     this.maxOutputBytes = positiveSafeInteger(
       options.maxBufferBytes,
       DEFAULT_MAX_OUTPUT_BYTES,
@@ -283,11 +311,20 @@ export class BinaryExecutor implements ProtocolExecutor {
     params: Readonly<Record<string, unknown>>,
     options: ExecuteOptions = {},
   ): Promise<T> {
-    this.refreshBinaryIdentity(method)
-    let capabilities = await this.ensureCapabilities(options)
-    this.refreshBinaryIdentity(method)
+    const budget = this.executionBudget(options)
+    const shareCapabilityNegotiation =
+      options.signal === undefined && options.timeoutMs === undefined
+    this.refreshBinaryIdentity(method, this.remainingOptions(budget, method))
+    let capabilities = await this.ensureCapabilities(
+      this.remainingOptions(budget, method),
+      shareCapabilityNegotiation,
+    )
+    this.refreshBinaryIdentity(method, this.remainingOptions(budget, method))
     if (this.capabilities !== capabilities) {
-      capabilities = await this.ensureCapabilities(options)
+      capabilities = await this.ensureCapabilities(
+        this.remainingOptions(budget, method),
+        shareCapabilityNegotiation,
+      )
     }
     this.requireMethod(capabilities, method)
     const result = await this.runRPC<T>(
@@ -296,7 +333,7 @@ export class BinaryExecutor implements ProtocolExecutor {
         context: protocolContext(context, this.clientVersion),
         ...params,
       },
-      options,
+      this.remainingOptions(budget, method),
       Math.min(
         capabilities.limits.max_request_bytes,
         DEFAULT_MAX_REQUEST_BYTES,
@@ -308,6 +345,7 @@ export class BinaryExecutor implements ProtocolExecutor {
       ),
     )
     this.requireCLIVersion(result.cliVersion, capabilities.cli.version, method)
+    this.remainingOptions(budget, method)
     return result.data
   }
 
@@ -317,11 +355,16 @@ export class BinaryExecutor implements ProtocolExecutor {
     params: Readonly<Record<string, unknown>>,
     options: ExecuteOptions = {},
   ): T {
-    this.refreshBinaryIdentity(method)
-    let capabilities = this.ensureCapabilitiesSync(options)
-    this.refreshBinaryIdentity(method)
+    const budget = this.executionBudget(options)
+    this.refreshBinaryIdentity(method, this.remainingOptions(budget, method))
+    let capabilities = this.ensureCapabilitiesSync(
+      this.remainingOptions(budget, method),
+    )
+    this.refreshBinaryIdentity(method, this.remainingOptions(budget, method))
     if (this.capabilities !== capabilities) {
-      capabilities = this.ensureCapabilitiesSync(options)
+      capabilities = this.ensureCapabilitiesSync(
+        this.remainingOptions(budget, method),
+      )
     }
     this.requireMethod(capabilities, method)
     const result = this.runRPCSync<T>(
@@ -330,7 +373,7 @@ export class BinaryExecutor implements ProtocolExecutor {
         context: protocolContext(context, this.clientVersion),
         ...params,
       },
-      options,
+      this.remainingOptions(budget, method),
       Math.min(
         capabilities.limits.max_request_bytes,
         DEFAULT_MAX_REQUEST_BYTES,
@@ -342,11 +385,54 @@ export class BinaryExecutor implements ProtocolExecutor {
       ),
     )
     this.requireCLIVersion(result.cliVersion, capabilities.cli.version, method)
+    this.remainingOptions(budget, method)
     return result.data
+  }
+
+  private executionBudget(options: ExecuteOptions): ExecutionBudget {
+    const timeoutMs = positiveSafeInteger(
+      options.timeoutMs,
+      this.defaultTimeoutMs,
+      'timeoutMs',
+    )
+    if (timeoutMs > MAX_TIMEOUT_MS) {
+      throw new RangeError(`timeoutMs must not exceed ${MAX_TIMEOUT_MS}`)
+    }
+    return {
+      deadlineMs: performance.now() + timeoutMs,
+      signal: options.signal,
+    }
+  }
+
+  private remainingOptions(
+    budget: ExecutionBudget,
+    method: LockerMethod,
+  ): ExecuteOptions {
+    if (budget.signal?.aborted) {
+      throw new LockerCancelledError('Locker CLI request was cancelled', {
+        method,
+        requestId: 'operation-budget',
+      })
+    }
+    const timeoutMs = Math.ceil(budget.deadlineMs - performance.now())
+    if (timeoutMs <= 0) {
+      throw new LockerTimeoutError(
+        'Locker SDK operation exceeded its total timeout',
+        {
+          method,
+          requestId: 'operation-budget',
+        },
+      )
+    }
+    return {
+      signal: budget.signal,
+      timeoutMs,
+    }
   }
 
   private async ensureCapabilities(
     options: ExecuteOptions,
+    shareNegotiation = false,
   ): Promise<ProtocolCapabilities> {
     if (this.capabilities && this.capabilityIdentity === this.binaryIdentity) {
       return this.capabilities
@@ -355,7 +441,7 @@ export class BinaryExecutor implements ProtocolExecutor {
     this.capabilityIdentity = undefined
     // A caller-specific signal/timeout must never poison unrelated concurrent
     // callers. Only the default negotiation is shared.
-    if (options.signal !== undefined || options.timeoutMs !== undefined) {
+    if (!shareNegotiation) {
       const negotiationIdentity = this.binaryIdentity
       const negotiated = await this.negotiateCapabilities(options)
       if (negotiationIdentity !== this.binaryIdentity) {
@@ -528,19 +614,15 @@ export class BinaryExecutor implements ProtocolExecutor {
     }
   }
 
-  private refreshBinaryIdentity(method: LockerMethod): void {
+  private refreshBinaryIdentity(
+    method: LockerMethod,
+    options: ExecuteOptions,
+  ): void {
     let resolved: string
     try {
-      resolved = resolveCLIPath(this.configuredCLIPath)
+      resolved = resolveCLIPath(this.configuredCLIPath, options)
     } catch (cause) {
-      throw new LockerTransportError(
-        'Locker CLI failed local provenance verification',
-        {
-          method,
-          requestId: 'binary-resolution',
-          cause,
-        },
-      )
+      this.throwResolutionError(cause, method)
     }
     const observed = executableIdentity(resolved)
     if (resolved === this.binaryPath && observed === this.binaryIdentity) {
@@ -565,6 +647,37 @@ export class BinaryExecutor implements ProtocolExecutor {
     }
   }
 
+  private throwResolutionError(
+    cause: unknown,
+    method: LockerMethod | 'system.capabilities',
+  ): never {
+    if (cause instanceof CLIResolutionCancelledError) {
+      throw new LockerCancelledError('Locker CLI request was cancelled', {
+        method,
+        requestId: 'binary-resolution',
+        cause,
+      })
+    }
+    if (cause instanceof CLIResolutionTimeoutError) {
+      throw new LockerTimeoutError(
+        'Locker CLI resolution exceeded the operation timeout',
+        {
+          method,
+          requestId: 'binary-resolution',
+          cause,
+        },
+      )
+    }
+    throw new LockerTransportError(
+      'Locker CLI failed local provenance verification',
+      {
+        method,
+        requestId: 'binary-resolution',
+        cause,
+      },
+    )
+  }
+
   private processOptions(
     options: ExecuteOptions,
     maxResponseBytes: number,
@@ -578,6 +691,100 @@ export class BinaryExecutor implements ProtocolExecutor {
       maxStdoutBytes: Math.min(this.maxOutputBytes, maxResponseBytes),
       maxStderrBytes: Math.min(this.maxOutputBytes, DEFAULT_MAX_STDERR_BYTES),
       signal: options.signal,
+    }
+  }
+
+  private bindExecutionPath(
+    method: LockerMethod | 'system.capabilities',
+    options: ExecuteOptions,
+  ): ExecutionBinding {
+    const startedAtMs = performance.now()
+    let resolved: string
+    try {
+      resolved = bindCLIPathForExecution(this.configuredCLIPath, options)
+    } catch (cause) {
+      this.throwResolutionError(cause, method)
+    }
+    return this.finalizeExecutionBinding(resolved, method, options, startedAtMs)
+  }
+
+  private async bindExecutionPathAsync(
+    method: LockerMethod | 'system.capabilities',
+    options: ExecuteOptions,
+  ): Promise<ExecutionBinding> {
+    const startedAtMs = performance.now()
+    let resolved: string
+    try {
+      resolved = await bindCLIPathForExecutionAsync(
+        this.configuredCLIPath,
+        options,
+      )
+    } catch (cause) {
+      this.throwResolutionError(cause, method)
+    }
+    return this.finalizeExecutionBinding(resolved, method, options, startedAtMs)
+  }
+
+  private finalizeExecutionBinding(
+    resolved: string,
+    method: LockerMethod | 'system.capabilities',
+    options: ExecuteOptions,
+    startedAtMs: number,
+  ): ExecutionBinding {
+    const identity = executableIdentity(resolved)
+    if (identity === undefined) {
+      throw new LockerTransportError(
+        'Locker CLI executable identity is unavailable after verification',
+        {
+          method,
+          requestId: 'binary-verification',
+        },
+      )
+    }
+    if (resolved !== this.binaryPath || identity !== this.binaryIdentity) {
+      this.binaryPath = resolved
+      this.binaryIdentity = identity
+      this.capabilities = undefined
+      this.capabilityIdentity = undefined
+      this.capabilityPromise = undefined
+      throw new LockerTransportError(
+        'Locker CLI executable changed before the protocol operation',
+        {
+          method,
+          requestId: 'binary-verification',
+        },
+      )
+    }
+    if (options.signal?.aborted) {
+      throw new LockerCancelledError('Locker CLI request was cancelled', {
+        method,
+        requestId: 'binary-verification',
+      })
+    }
+    const originalTimeoutMs = positiveSafeInteger(
+      options.timeoutMs,
+      this.defaultTimeoutMs,
+      'timeoutMs',
+    )
+    const timeoutMs = Math.floor(
+      originalTimeoutMs - (performance.now() - startedAtMs),
+    )
+    if (timeoutMs <= 0) {
+      throw new LockerTimeoutError(
+        'Locker CLI verification exhausted the operation timeout',
+        {
+          method,
+          requestId: 'binary-verification',
+        },
+      )
+    }
+    return {
+      path: resolved,
+      identity,
+      options: {
+        signal: options.signal,
+        timeoutMs,
+      },
     }
   }
 
@@ -616,23 +823,13 @@ export class BinaryExecutor implements ProtocolExecutor {
   }
 
   private async runRPC<T>(
-    method: string,
+    method: LockerMethod | 'system.capabilities',
     params: Readonly<Record<string, unknown>>,
     options: ExecuteOptions,
     maxRequestBytes: number,
     maxResponseBytes: number,
     maxJSONDepth: number,
   ): Promise<DecodedRPCResult<T>> {
-    const identityBefore = this.binaryIdentity
-    if (
-      identityBefore !== undefined &&
-      executableIdentity(this.binaryPath) !== identityBefore
-    ) {
-      throw new LockerTransportError(
-        'Locker CLI executable changed before the protocol operation',
-        { method, requestId: 'binary-identity' },
-      )
-    }
     const { id, buffer } = this.encodeRequest(
       method,
       params,
@@ -640,17 +837,15 @@ export class BinaryExecutor implements ProtocolExecutor {
       maxJSONDepth,
     )
     try {
+      const binding = await this.bindExecutionPathAsync(method, options)
       const processResult = await this.runner.run(
-        this.binaryPath,
+        binding.path,
         SDK_ARGUMENTS,
         buffer,
-        this.processOptions(options, maxResponseBytes),
+        this.processOptions(binding.options, maxResponseBytes),
       )
       const result = this.decodeResponse<T>(processResult.stdout, method, id)
-      if (
-        identityBefore !== undefined &&
-        executableIdentity(this.binaryPath) !== identityBefore
-      ) {
+      if (executableIdentity(binding.path) !== binding.identity) {
         throw new LockerTransportError(
           'Locker CLI executable changed during the protocol operation',
           { method, requestId: id },
@@ -667,23 +862,13 @@ export class BinaryExecutor implements ProtocolExecutor {
   }
 
   private runRPCSync<T>(
-    method: string,
+    method: LockerMethod | 'system.capabilities',
     params: Readonly<Record<string, unknown>>,
     options: ExecuteOptions,
     maxRequestBytes: number,
     maxResponseBytes: number,
     maxJSONDepth: number,
   ): DecodedRPCResult<T> {
-    const identityBefore = this.binaryIdentity
-    if (
-      identityBefore !== undefined &&
-      executableIdentity(this.binaryPath) !== identityBefore
-    ) {
-      throw new LockerTransportError(
-        'Locker CLI executable changed before the protocol operation',
-        { method, requestId: 'binary-identity' },
-      )
-    }
     const { id, buffer } = this.encodeRequest(
       method,
       params,
@@ -691,17 +876,15 @@ export class BinaryExecutor implements ProtocolExecutor {
       maxJSONDepth,
     )
     try {
+      const binding = this.bindExecutionPath(method, options)
       const processResult = this.runner.runSync(
-        this.binaryPath,
+        binding.path,
         SDK_ARGUMENTS,
         buffer,
-        this.processOptions(options, maxResponseBytes),
+        this.processOptions(binding.options, maxResponseBytes),
       )
       const result = this.decodeResponse<T>(processResult.stdout, method, id)
-      if (
-        identityBefore !== undefined &&
-        executableIdentity(this.binaryPath) !== identityBefore
-      ) {
+      if (executableIdentity(binding.path) !== binding.identity) {
         throw new LockerTransportError(
           'Locker CLI executable changed during the protocol operation',
           { method, requestId: id },

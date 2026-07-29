@@ -28,12 +28,25 @@ OS/architecture header. Releases are immutable under
 `~/.locker/sdk-cli/nodejs/releases/2.x.y/`; an atomic local pointer activates a fully
 verified release. Resolution order is:
 
-On POSIX, every managed cache ancestor must be owned by the effective user and
-is revalidated at mode `0700` before updater state is used.
-
 1. Constructor `cliPath`
 2. `LOCKER_CLI_PATH`
 3. The latest fully verified managed release
+
+Every managed capability and vault-operation spawn revalidates the local trust
+root, canonical pointer, signed manifest, private generation, executable
+header, exact size, and SHA-256 immediately before execution. Artifact bytes
+are streamed through a fixed 64 KiB buffer, so this safety check has bounded
+memory use. A newly selected generation additionally receives full detached
+Ed25519 artifact verification before adoption. Async calls reuse the already
+loaded verifier module and abort its read with the operation budget; sync calls
+use the bounded bundled helper. Neither path performs a network check unless
+the normal update deadline is due. In-place replacement with the same path,
+size, and modification time therefore fails closed. Explicit caller-owned CLI
+paths retain their existing trust semantics and skip managed-channel
+verification.
+
+On POSIX, every managed cache ancestor must be owned by the effective user and
+is revalidated at mode `0700` before updater state is used.
 
 The legacy auto-downloaded `locker_secret` binary is never selected
 automatically because it has no protocol-v1 provenance. During migration it
@@ -63,10 +76,12 @@ secret must stop application startup.
 
 Use the canonical Locker environment variables:
 
-```text
-LOCKER_ACCESS_KEY_ID
-LOCKER_SECRET_ACCESS_KEY
-```
+| Environment variable       | Purpose                           |
+| -------------------------- | --------------------------------- |
+| `LOCKER_ACCESS_KEY_ID`     | Project access key ID             |
+| `LOCKER_SECRET_ACCESS_KEY` | Project secret access key         |
+| `LOCKER_API_BASE`          | Cloud or self-hosted API base URL |
+| `LOCKER_CLI_PATH`          | Absolute caller-owned CLI path    |
 
 Migration lookup uses this fixed precedence: `LOCKER_ACCESS_KEY_ID` then
 `ACCESS_KEY_ID`, and `LOCKER_SECRET_ACCESS_KEY` then `SECRET_ACCESS_KEY`, then
@@ -189,13 +204,27 @@ controller.abort()
 
 The SDK bounds request, stdout and stderr sizes and terminates the CLI process
 tree when an asynchronous call times out or is cancelled. Synchronous calls
-support a bounded timeout and detect an already-aborted signal.
+support a bounded timeout and detect an already-aborted signal. A call uses one
+total timeout budget across capability negotiation and the vault operation;
+each subprocess receives only the remaining time.
 On Windows, tree termination resolves the OS `taskkill.exe` through the kernel
 `SystemRoot` device path; ambient `PATH`, `SystemRoot`, and `WINDIR` values
 cannot substitute an executable.
 `maxBufferBytes` may lower the 20 MiB protocol response ceiling but cannot
 raise it. Cached capabilities are discarded when a file-backed CLI identity
 changes.
+
+The SDK does not automatically retry a vault RPC. Create and update are sent
+once because a lost response can leave the remote commit outcome unknown.
+Applications may inspect `error.retryable` and add bounded retry only around
+read-only operations.
+
+`restTime` controls the CLI's encrypted, revision-aware vault cache; the SDK
+does not retain plaintext secret values. `restTime: 0` disables offline reuse,
+and `fetch: true` requires a successful server refresh with no cache fallback.
+A transient outage may reuse only a still-fresh cache last validated
+successfully by the server. Authentication, authorization, TLS, integrity,
+malformed-response, and local-storage failures fail closed.
 
 ## Error handling
 
@@ -256,11 +285,12 @@ npm test
 npm pack --dry-run --ignore-scripts
 ```
 
-CI tests the reviewed digests of the official Node.js 22 and 24 LTS images;
-the development Dockerfile uses Node.js 24 LTS. `npm ci --ignore-scripts`
-consumes the committed SHA-512-integrity lock without executing dependency
-lifecycle code. Node.js 18 and 20 are end-of-life and odd-numbered releases
-are not accepted by SDK 2.0.
+CI tests reviewed digests of the official Node.js 22 and 24 LTS Bookworm
+images. Their buildpack-deps base supplies Git for the history-backed release
+policy; the smaller development Dockerfile remains on Node.js 24 LTS Alpine.
+`npm ci --ignore-scripts` consumes the committed SHA-512-integrity lock without
+executing dependency lifecycle code. Node.js 18 and 20 are end-of-life and
+odd-numbered releases are not accepted by SDK 2.0.
 
 `npm test` builds both module formats, runs protocol conformance tests, API
 tests and package import smoke tests. To include the real CLI handshake test:
@@ -277,15 +307,63 @@ keys, non-canonical encodings, wrong hashes/signatures and wrong executable
 headers fail closed. Only an actual transport failure may reuse a previously
 and fully reverified cache.
 
-Tagged release verification requires the independently protected
-`LOCKER_CLI_RELEASE_PUBLIC_KEY` CI variable. Its canonical unpadded base64url
-raw 32-byte value must match the reviewed key in `locker-cli-release.json`;
-CI never derives the protected value from that packaged resource.
+Every accepted two-parent merge into protected `main` automatically publishes
+one stable patch release. CI derives the version from first-parent history,
+rejects direct/squash/rebase commits and mispointed base tags, and waits for
+the immediate predecessor tag to resolve to the current merge's first parent.
+Configure the `lockersm-npm` resource group once with process mode
+`oldest_first`; it serializes release jobs without occupying every runner,
+while the predecessor check remains a fail-closed second ordering layer. CI
+injects the version only into an isolated tracked-source copy, then builds,
+type-checks, packs and smoke-tests both CommonJS and ESM imports. Publication
+is idempotent: an existing npm version is accepted only when its SHA-512
+integrity exactly matches the locally verified tarball.
+
+This project uses self-managed GitLab and runners, so npm trusted publishing
+for GitLab.com shared runners is not available. Configure `NPM_TOKEN` as a
+protected masked npm granular access token scoped only to the `lockersm`
+package, with read/write permission and bypass-2FA enabled for CI. Give it the
+shortest practical expiry and restrict it to the runners' fixed egress IP
+ranges when npm account policy supports that control; do not use a legacy
+token. Also configure protected `LOCKER_CLI_RELEASE_PUBLIC_KEY` as the
+canonical unpadded base64url raw 32-byte value that must independently match
+the reviewed key in `locker-cli-release.json`; CI never derives the protected
+value from the packaged resource. Protect `main`, `v*`, and the `npm`
+environment.
+Reject `[ci skip]` and `[skip ci]` on `main`, and prevent the `ci.skip` or
+`ci.no_pipeline` push options where the GitLab tier supports pipeline
+execution policies.
+Do not merge the next change until the preceding release succeeds. A missing
+predecessor intentionally blocks later versions; recover and verify that exact
+failed release rather than bypassing or synthesizing a later tag.
+
+After the first pipeline creates the resource group, a Maintainer must run:
+
+```shell
+curl --request PUT \
+  --header "PRIVATE-TOKEN: <maintainer-token>" \
+  --data "process_mode=oldest_first" \
+  "https://git.cystack.org/api/v4/projects/<project-id>/resource_groups/lockersm-npm"
+```
 
 ## Security
 
 Report security issues privately to <contact@locker.io>. Do not include access
 keys or plaintext secrets in issue trackers.
+Product help is available at [support.locker.io](https://support.locker.io).
+
+## Troubleshooting
+
+- Authentication/permission errors: verify the canonical credential pair and
+  its project/environment scope.
+- `LockerTransportError`: check the API base, CA/proxy, timeout, and absolute
+  CLI path; protocol bodies and CLI stderr are intentionally unavailable.
+- Managed install failure: check system time, HTTPS access to
+  `files.locker.io`, and private ownership below
+  `~/.locker/sdk-cli/nodejs`.
+- Protocol failure: upgrade the SDK and CLI together or remove an incompatible
+  explicit `LOCKER_CLI_PATH`.
+- Unexpected stale reads: use `fetch: true`; do not loosen cache permissions.
 
 ## License
 

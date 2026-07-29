@@ -3,11 +3,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const images = [
-  'node:22.23.1-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2',
-  'node:24.18.0-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd',
+const ciImages = [
+  'node:22.23.1-bookworm@sha256:5647be709086c696ff32edaaf1c70cd26d1da6ab2b39c32f3c7b4c4a31957e37',
+  'node:24.18.0-bookworm@sha256:5711a0d445a1af54af9589066c646df387d1831a608226f4cd694fc59e745059',
 ]
-const developmentImage = images[1]
+const developmentImage =
+  'node:24.18.0-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd'
 const maxInputBytes = 2 * 1024 * 1024
 const forbiddenBootstrap = /\b(?:apt-get|apk\s+add|curl|wget)\b/iu
 
@@ -61,11 +62,19 @@ async function main() {
   ])
 
   if (
-    images.some((image) => !pipeline.includes(image)) ||
+    ciImages.some((image) => !pipeline.includes(image)) ||
     !dockerfile.includes(developmentImage)
   ) {
     throw new Error(
       'CI and Dockerfile must use the reviewed immutable Node LTS images',
+    )
+  }
+  if (
+    process.env.CI === 'true' &&
+    !ciImages.includes(process.env.CI_JOB_IMAGE ?? '')
+  ) {
+    throw new Error(
+      'CI must execute inside one of the reviewed immutable Node images',
     )
   }
   if (
@@ -88,6 +97,24 @@ async function main() {
     throw new Error(
       'release verification must require an independent trust root',
     )
+  }
+  for (const marker of [
+    'auto_cancel:',
+    'cs_newgen_docker',
+    'scripts/release.mjs prepare',
+    'scripts/release.mjs wait-predecessor',
+    'scripts/release.mjs verify-tag',
+    'scripts/release.mjs publish-npm',
+    'scripts/release.mjs create-release',
+    'resource_group: lockersm-npm',
+    'git fetch --force --tags origin',
+  ]) {
+    if (!pipeline.includes(marker)) {
+      throw new Error(`automatic main release is missing ${marker}`)
+    }
+  }
+  if (pipeline.includes('when: manual')) {
+    throw new Error('the protected main release must not require manual input')
   }
 
   const packageJson = JSON.parse(packageText)

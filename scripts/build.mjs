@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = new URL('../', import.meta.url)
 const modulePathSentinel = "'__LOCKER_COMPILED_MODULE_PATH__'"
+const moduleFormatSentinel = "'__LOCKER_COMPILED_MODULE_FORMAT__'"
 const tsc = fileURLToPath(
   new URL('../node_modules/typescript/bin/tsc', import.meta.url),
 )
@@ -30,13 +31,16 @@ for (const [format, replacement] of [
 ]) {
   const resolver = new URL(`lib/${format}/src/cli/resolver.js`, root)
   const output = await readFile(resolver, 'utf8')
-  const occurrences = output.split(modulePathSentinel).length - 1
-  if (occurrences !== 1) {
+  const pathOccurrences = output.split(modulePathSentinel).length - 1
+  const formatOccurrences = output.split(moduleFormatSentinel).length - 1
+  if (pathOccurrences !== 1 || formatOccurrences !== 1) {
     throw new Error(
-      `Expected exactly one Locker module-path sentinel in ${resolver.pathname}`,
+      `Expected exactly one Locker module sentinel in ${resolver.pathname}`,
     )
   }
-  let patched = output.replace(modulePathSentinel, replacement)
+  let patched = output
+    .replace(modulePathSentinel, replacement)
+    .replace(moduleFormatSentinel, `'${format}'`)
   if (format === 'esm') {
     patched = `import { fileURLToPath } from 'node:url'\n${patched}`
   }
