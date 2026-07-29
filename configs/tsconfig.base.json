@@ -3,12 +3,15 @@
     "strict": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "skipLibCheck": true,
-    "checkJs": true,
-    "allowJs": true,
+    "skipLibCheck": false,
     "declaration": true,
     "declarationMap": true,
-    "allowSyntheticDefaultImports": true
+    "allowSyntheticDefaultImports": true,
+    "lib": ["ES2022", "DOM"],
+    "target": "ES2022",
+    "moduleResolution": "Node",
+    "noImplicitOverride": true,
+    "types": ["node"]
   },
   "files": ["../index.ts"]
 }

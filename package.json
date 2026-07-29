@@ -1,12 +1,12 @@
 {
   "name": "lockersm",
-  "version": "1.2.7",
-  "description": "Locker Secrets SDK for NodeJS",
+  "version": "2.0.0",
+  "description": "Official Locker Secrets SDK for Node.js",
   "exports": {
     ".": {
       "import": {
         "types": "./lib/esm/types/index.d.ts",
-        "default": "./lib/esm/index.mjs"
+        "default": "./lib/esm/index.js"
       },
       "require": {
         "types": "./lib/cjs/types/index.d.ts",
@@ -16,28 +16,46 @@
   },
   "types": "./lib/cjs/types/index.d.ts",
   "main": "./lib/cjs/index.js",
+  "module": "./lib/esm/index.js",
+  "bin": {
+    "lockersm-install": "./setup.js"
+  },
   "files": [
     "lib/**/*",
+    "protocol/**/*",
+    "scripts/install-cli.mjs",
+    "locker-cli-release.json",
     "setup.js"
   ],
-  "scripts": {
-    "clean": "rm -rf ./lib",
-    "build": "npm run clean && npm run build:esm && npm run build:cjs",
-    "build:esm": "tsc -p ./configs/tsconfig.esm.json && mv lib/esm/index.js lib/esm/index.mjs && echo '{\"type\":\"module\"}' > lib/esm/package.json",
-    "build:cjs": "tsc -p ./configs/tsconfig.cjs.json",
-    "prepack": "npm run build",
-    "test": "mocha",
-    "postinstall": "node setup.js"
+  "engines": {
+    "node": "^22.20.0 || ^24.0.0"
   },
-  "author": "duchm",
-  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://git.cystack.org/locker/secrets-sdk/js.git"
+  },
+  "homepage": "https://locker.io",
+  "bugs": {
+    "url": "https://git.cystack.org/locker/secrets-sdk/js/-/issues"
+  },
+  "scripts": {
+    "clean": "node ./scripts/clean.mjs",
+    "build": "node ./scripts/build.mjs",
+    "ci:contract": "node ./scripts/verify-ci-supply-chain.mjs",
+    "build:esm": "tsc -p ./configs/tsconfig.esm.json",
+    "build:cjs": "tsc -p ./configs/tsconfig.cjs.json",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc -p ./configs/tsconfig.esm.json --noEmit && tsc -p ./configs/tsconfig.cjs.json --noEmit && tsc -p ./configs/tsconfig.tests.json",
+    "prepack": "npm run build",
+    "test": "npm run build && node ./scripts/test.mjs",
+    "install:cli": "node setup.js"
+  },
+  "author": "CyStack",
+  "license": "Apache-2.0",
   "devDependencies": {
-    "@types/chai": "^4.3.5",
-    "@types/mocha": "^10.0.1",
-    "chai": "^4.3.7",
-    "dotenv": "^16.3.1",
-    "mocha": "^10.2.0",
-    "ts-node": "^10.9.1",
-    "typescript": "^5.1.3"
+    "@types/node": "^22.15.3",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3"
   }
 }

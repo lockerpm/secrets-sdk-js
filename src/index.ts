@@ -1,2 +1,3 @@
-export * from './locker'
-export * from './abstraction'
+export * from './locker.js'
+export * from './abstraction/index.js'
+export * from './resources/index.js'

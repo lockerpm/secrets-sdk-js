@@ -1,12 +1,163 @@
 stages:
-  - build
+  - test
+  - package
+  - publish
 
-build:
-  stage: build
-  script:
-    - cystack-deployer
+workflow:
+  auto_cancel:
+    on_new_commit: none
+  rules:
+    # The protected publish job creates vX.Y.Z. Never recurse on that tag.
+    - if: '$CI_COMMIT_TAG'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - when: never
+
+default:
+  # The full bookworm variant inherits buildpack-deps and includes Git. Release
+  # policy tests and automatic tag reconciliation must not assume Git exists in
+  # the minimal Alpine image.
+  image: 'node:24.18.0-bookworm@sha256:5711a0d445a1af54af9589066c646df387d1831a608226f4cd694fc59e745059'
   tags:
-    - cs_newgen
-  only:
-    - release
-    - tags
+    - cs_newgen_docker
+
+# Protect main, v* tags, the npm environment, NPM_TOKEN and
+# LOCKER_CLI_RELEASE_PUBLIC_KEY in GitLab project settings.
+test:
+  stage: test
+  parallel:
+    matrix:
+      - NODE_IMAGE:
+          - 'node:22.23.1-bookworm@sha256:5647be709086c696ff32edaaf1c70cd26d1da6ab2b39c32f3c7b4c4a31957e37'
+          - 'node:24.18.0-bookworm@sha256:5711a0d445a1af54af9589066c646df387d1831a608226f4cd694fc59e745059'
+  image: '$NODE_IMAGE'
+  script:
+    - git --version
+    - node scripts/verify-ci-supply-chain.mjs
+    - npm ci --ignore-scripts
+    - npm audit --audit-level=high
+    - npm run format:check
+    - npm run typecheck
+    - npm test
+    - npm pack --dry-run --ignore-scripts
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+package:
+  stage: package
+  needs:
+    - test
+  script:
+    - node scripts/verify-ci-supply-chain.mjs
+    - npm ci --ignore-scripts
+    - npm test
+    - node -e "require('node:fs').mkdirSync('release-package', { recursive:true })"
+    - npm pack --pack-destination release-package
+  artifacts:
+    name: lockersm-js-${CI_COMMIT_SHA}
+    paths:
+      - release-package/
+    expire_in: 14 days
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: never
+    - when: on_success
+
+auto_release:
+  stage: publish
+  interruptible: false
+  # Configure this resource group as oldest_first once through the GitLab API.
+  # The predecessor check below remains a fail-closed second ordering layer.
+  resource_group: lockersm-npm
+  retry:
+    max: 2
+    when:
+      - api_failure
+      - runner_system_failure
+      - scheduler_failure
+      - script_failure
+      - stuck_or_timeout_failure
+  variables:
+    GIT_DEPTH: '0'
+  environment:
+    name: npm
+    deployment_tier: production
+  before_script:
+    - node scripts/verify-ci-supply-chain.mjs
+    - git --version
+    - git fetch --force --tags origin
+  script:
+    - >-
+      test "$CI_COMMIT_REF_PROTECTED" = "true" ||
+      { echo "default branch must be protected before release" >&2; exit 1; }
+    - >-
+      test "$CI_DEFAULT_BRANCH" = "main" ||
+      { echo "main must remain the GitLab default branch" >&2; exit 1; }
+    - >-
+      test -n "${NPM_TOKEN:-}" &&
+      test -n "${LOCKER_CLI_RELEASE_PUBLIC_KEY:-}" ||
+      { echo "missing protected npm release variables" >&2; exit 1; }
+    - export RELEASE_ENV="$CI_BUILDS_DIR/locker-js-$CI_JOB_ID.env"
+    - >-
+      node scripts/release.mjs prepare
+      --commit "$CI_COMMIT_SHA"
+      --output "$RELEASE_ENV"
+    - set -a
+    - . "$RELEASE_ENV"
+    - set +a
+    - >-
+      node scripts/release.mjs wait-predecessor
+      --tag "$LOCKER_PREDECESSOR_TAG"
+      --commit "$LOCKER_PREDECESSOR_COMMIT"
+    - >-
+      node scripts/release.mjs verify-tag
+      --tag "$LOCKER_RELEASE_TAG"
+      --commit "$CI_COMMIT_SHA"
+    - rm -rf .release-source release-package
+    - >-
+      node scripts/release.mjs stage-version
+      --output "$CI_PROJECT_DIR/.release-source"
+      --version "$LOCKER_SDK_VERSION"
+    - cd .release-source
+    - npm ci --ignore-scripts
+    - npm run build
+    - npm run typecheck
+    - mkdir -p "$CI_PROJECT_DIR/release-package"
+    - npm pack --pack-destination "$CI_PROJECT_DIR/release-package"
+    - cd "$CI_PROJECT_DIR"
+    - export RELEASE_ARTIFACT="release-package/lockersm-$LOCKER_SDK_VERSION.tgz"
+    - >-
+      node scripts/verify-release.mjs
+      --root "$CI_PROJECT_DIR/.release-source"
+      --tag "$LOCKER_RELEASE_TAG"
+      --artifact "$RELEASE_ARTIFACT"
+    - rm -rf .release-smoke
+    - mkdir .release-smoke
+    - cd .release-smoke
+    - npm init --yes
+    - npm install --ignore-scripts --no-package-lock "../$RELEASE_ARTIFACT"
+    - node --eval "require('lockersm')"
+    - node --input-type=module --eval "await import('lockersm')"
+    - cd "$CI_PROJECT_DIR"
+    - >-
+      node scripts/release.mjs publish-npm
+      --version "$LOCKER_SDK_VERSION"
+      --artifact "$RELEASE_ARTIFACT"
+    - >-
+      node scripts/release.mjs create-release
+      --version "$LOCKER_SDK_VERSION"
+      --tag "$LOCKER_RELEASE_TAG"
+      --commit "$CI_COMMIT_SHA"
+      --released-at "$CI_COMMIT_TIMESTAMP"
+      --title "$CI_COMMIT_TITLE"
+    - cp "$RELEASE_ENV" release-package/release.env
+  artifacts:
+    name: lockersm-js-release-${CI_COMMIT_SHA}
+    when: always
+    paths:
+      - release-package/
+    expire_in: 30 days
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'

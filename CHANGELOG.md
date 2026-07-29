@@ -1,5 +1,53 @@
 # Changelog
 
+## 2.0.0 - Unreleased
+
+- Adopt the stable `locker.sdk` JSON-RPC v1 protocol over stdin/stdout.
+- Remove credentials, custom headers and secret values from child-process
+  arguments and logs.
+- Add capability negotiation, bounded process execution, cancellation,
+  timeouts and typed protocol errors.
+- Make `get` defaults apply only to `NOT_FOUND`; add fail-closed
+  `getRequired` and `getRequiredSync`.
+- Fix ESM packaging and make build/test scripts cross-platform.
+- Replace disabled live-vault tests with deterministic protocol, API and
+  package conformance suites.
+- Replace pinned CLI versions with signed update-channel v2, an independent
+  embedded Ed25519 trust root, first-use plus persisted six-hour checks, and
+  fail-closed rollback/equivocation protection.
+- Store fully verified CLI builds in immutable
+  `~/.locker/sdk-cli/nodejs/releases/2.x.y/` directories and activate them through an
+  atomic pointer; stop auto-selecting the unverified legacy `locker_secret`.
+- Reject duplicate JSON fields, excessive nesting, invalid capability limits,
+  malformed resource DTOs and runtime values that do not conform to protocol
+  v1.
+- Redact secret values from Node.js inspection/string output while keeping
+  explicit `toJSON()`/export behavior available for intentional export.
+- Add typed, bounded secret/environment page APIs and validate the CLI's
+  advertised request/response/depth limits.
+- Reject unpaired Unicode surrogates and non-finite request numbers, verify
+  canonical signed release JSON and raw artifact signatures, and invalidate
+  cached capabilities when the active binary identity changes.
+- Require explicit CLI overrides to be absolute regular non-link files,
+  validate executability on POSIX, document the exact cross-SDK credential
+  alias precedence, and include the declared Apache-2.0 license text in
+  published packages.
+
+### Migration
+
+- Upgrade the application runtime to supported Node.js LTS lines (22.20+ or
+  24.x).
+- Use the automatically resolved latest signed protocol-v1 Locker CLI, force a
+  check with `npx lockersm-install`, or configure
+  `cliPath`/`LOCKER_CLI_PATH`; npm installation itself never downloads or
+  executes a CLI binary.
+- Replace reliance on the legacy `locker_secret` auto-download with the
+  canonical `locker` binary. Legacy paths are accepted only when explicitly
+  configured and still must pass protocol capability negotiation.
+- Handle typed authentication, permission, network, server, storage and
+  protocol errors. `get`/`getSync` return their default only for `NOT_FOUND`;
+  use `getRequired`/`getRequiredSync` for required configuration.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
@@ -93,7 +141,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Separate folder for spec tests
 - Update binary version to 1.0.81
-
 
 ## 1.0.2 - 2024-01-30
 

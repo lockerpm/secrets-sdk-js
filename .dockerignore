@@ -1,4 +1,9 @@
 .git
-.gitlab-ci.yml
 .gitignore
 .idea
+bin
+lib
+node_modules
+.env
+output-test
+*.tgz
