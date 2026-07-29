@@ -53,6 +53,7 @@ export type ProtocolCapabilities = {
     version: string
   }
   methods: string[]
+  error_contracts?: string[]
   limits: {
     max_request_bytes: number
     max_response_bytes: number

@@ -8,10 +8,13 @@ export const ErrorCode = {
   AUTHENTICATION: -32001,
   PERMISSION_DENIED: -32003,
   NOT_FOUND: -32004,
+  CONFLICT: -32009,
+  VALIDATION: -32022,
   RATE_LIMITED: -32029,
   NETWORK: -32050,
   SERVER: -32051,
   STORAGE: -32060,
+  INTEGRITY: -32070,
 } as const
 
 export type LockerErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -22,6 +25,8 @@ export type LockerErrorDetails = {
   kind: string
   retryable: boolean
   requestId: RequestID
+  retryAfterSeconds?: number
+  serverRequestId?: string
 }
 
 /**
@@ -47,6 +52,8 @@ export class LockerError extends Error {
   readonly kind: string
   readonly retryable: boolean
   readonly requestId: RequestID
+  readonly retryAfterSeconds?: number
+  readonly serverRequestId?: string
 
   constructor(message: string, details: LockerErrorDetails) {
     super(message)
@@ -55,6 +62,8 @@ export class LockerError extends Error {
     this.kind = details.kind
     this.retryable = details.retryable
     this.requestId = details.requestId
+    this.retryAfterSeconds = details.retryAfterSeconds
+    this.serverRequestId = details.serverRequestId
     Object.setPrototypeOf(this, new.target.prototype)
   }
 }
@@ -87,6 +96,48 @@ export class LockerNotFoundError extends LockerError {
   }
 }
 
+export class LockerConflictError extends LockerError {
+  constructor(message: string, details: LockerErrorDetails) {
+    super(message, details)
+    this.name = 'LockerConflictError'
+  }
+}
+
+export class LockerAlreadyExistsError extends LockerConflictError {
+  constructor(message: string, details: LockerErrorDetails) {
+    super(message, details)
+    this.name = 'LockerAlreadyExistsError'
+  }
+}
+
+export class LockerValidationError extends LockerError {
+  constructor(message: string, details: LockerErrorDetails) {
+    super(message, details)
+    this.name = 'LockerValidationError'
+  }
+}
+
+export class LockerRequestRejectedError extends LockerError {
+  constructor(message: string, details: LockerErrorDetails) {
+    super(message, details)
+    this.name = 'LockerRequestRejectedError'
+  }
+}
+
+export class LockerResponseTooLargeError extends LockerError {
+  constructor(message: string, details: LockerErrorDetails) {
+    super(message, details)
+    this.name = 'LockerResponseTooLargeError'
+  }
+}
+
+export class LockerOperationCancelledError extends LockerError {
+  constructor(message: string, details: LockerErrorDetails) {
+    super(message, details)
+    this.name = 'LockerOperationCancelledError'
+  }
+}
+
 export class LockerRateLimitError extends LockerError {
   constructor(message: string, details: LockerErrorDetails) {
     super(message, details)
@@ -112,6 +163,13 @@ export class LockerStorageError extends LockerError {
   constructor(message: string, details: LockerErrorDetails) {
     super(message, details)
     this.name = 'LockerStorageError'
+  }
+}
+
+export class LockerIntegrityError extends LockerError {
+  constructor(message: string, details: LockerErrorDetails) {
+    super(message, details)
+    this.name = 'LockerIntegrityError'
   }
 }
 
@@ -162,14 +220,92 @@ export function isLockerNotFoundError(
   )
 }
 
+export function isLockerConflictError(
+  error: unknown,
+): error is LockerConflictError {
+  return (
+    error instanceof LockerConflictError ||
+    (error instanceof LockerError &&
+      (error.code === ErrorCode.CONFLICT ||
+        (error.code === ErrorCode.OPERATION_FAILED &&
+          (error.kind === 'conflict' || isAlreadyExistsKind(error.kind)))))
+  )
+}
+
+export function isLockerAlreadyExistsError(
+  error: unknown,
+): error is LockerAlreadyExistsError {
+  return (
+    error instanceof LockerAlreadyExistsError ||
+    (error instanceof LockerError &&
+      (error.code === ErrorCode.CONFLICT ||
+        error.code === ErrorCode.OPERATION_FAILED) &&
+      isAlreadyExistsKind(error.kind))
+  )
+}
+
 export function errorFromResponse(
   code: number,
-  message: string,
+  _message: string,
   kind: string,
   retryable: boolean,
   requestId: RequestID,
+  retryAfterSeconds?: number,
+  serverRequestId?: string,
 ): LockerError {
-  const details = { code, kind, retryable, requestId }
+  const effectiveRetryable = retryable && !isNormativelyNonRetryable(code, kind)
+  const details = {
+    code,
+    kind,
+    retryable: effectiveRetryable,
+    requestId,
+    ...(code === ErrorCode.RATE_LIMITED &&
+    kind === 'rate_limited' &&
+    retryAfterSeconds !== undefined
+      ? { retryAfterSeconds }
+      : {}),
+    ...(serverRequestId === undefined ? {} : { serverRequestId }),
+  }
+  const message = safeErrorMessage(code, kind)
+  if (!isStandardProtocolCode(code) && !isLockerServerErrorCode(code)) {
+    return new LockerProtocolError('unsupported JSON-RPC error code', {
+      ...details,
+      retryable: false,
+    })
+  }
+  if (
+    (code === ErrorCode.CONFLICT || code === ErrorCode.OPERATION_FAILED) &&
+    isAlreadyExistsKind(kind)
+  ) {
+    return new LockerAlreadyExistsError(message, details)
+  }
+  if (
+    code === ErrorCode.CONFLICT ||
+    (code === ErrorCode.OPERATION_FAILED && kind === 'conflict')
+  ) {
+    return new LockerConflictError(message, details)
+  }
+  if (
+    code === ErrorCode.VALIDATION ||
+    (code === ErrorCode.OPERATION_FAILED && kind === 'validation_error')
+  ) {
+    return new LockerValidationError(message, details)
+  }
+  if (
+    code === ErrorCode.INTEGRITY ||
+    (code === ErrorCode.OPERATION_FAILED && isIntegrityKind(kind))
+  ) {
+    return new LockerIntegrityError(message, details)
+  }
+  if (code === ErrorCode.OPERATION_FAILED && kind === 'request_rejected') {
+    return new LockerRequestRejectedError(message, details)
+  }
+  if (code === ErrorCode.OPERATION_FAILED && kind === 'response_too_large') {
+    return new LockerResponseTooLargeError(message, details)
+  }
+  if (code === ErrorCode.OPERATION_FAILED && kind === 'cancelled') {
+    return new LockerOperationCancelledError(message, details)
+  }
   switch (code) {
     case ErrorCode.PARSE:
     case ErrorCode.INVALID_REQUEST:
@@ -193,5 +329,148 @@ export function errorFromResponse(
       return new LockerStorageError(message, details)
     default:
       return new LockerError(message, details)
+  }
+}
+
+function isAlreadyExistsKind(kind: string): boolean {
+  return (
+    kind === 'already_exists' ||
+    kind === 'secret_already_exists' ||
+    kind === 'environment_already_exists' ||
+    kind === 'duplicate_hash'
+  )
+}
+
+function isNormativelyNonRetryable(code: number, kind: string): boolean {
+  return (
+    isStandardProtocolCode(code) ||
+    code === ErrorCode.AUTHENTICATION ||
+    code === ErrorCode.PERMISSION_DENIED ||
+    code === ErrorCode.NOT_FOUND ||
+    code === ErrorCode.OPERATION_FAILED ||
+    code === ErrorCode.CONFLICT ||
+    code === ErrorCode.VALIDATION ||
+    code === ErrorCode.STORAGE ||
+    code === ErrorCode.INTEGRITY ||
+    (code === ErrorCode.SERVER && kind === 'internal_error')
+  )
+}
+
+function isIntegrityKind(kind: string): boolean {
+  return (
+    kind === 'integrity_error' ||
+    kind === 'transport_integrity_error' ||
+    kind === 'data_integrity_error' ||
+    kind === 'data_error'
+  )
+}
+
+function isStandardProtocolCode(code: number): boolean {
+  return (
+    code === ErrorCode.PARSE ||
+    code === ErrorCode.INVALID_REQUEST ||
+    code === ErrorCode.METHOD_NOT_FOUND ||
+    code === ErrorCode.INVALID_PARAMS ||
+    code === ErrorCode.INTERNAL
+  )
+}
+
+function isLockerServerErrorCode(code: number): boolean {
+  return Number.isSafeInteger(code) && code >= -32099 && code <= -32000
+}
+
+function safeErrorMessage(code: number, kind: string): string {
+  if (
+    (code === ErrorCode.CONFLICT || code === ErrorCode.OPERATION_FAILED) &&
+    isAlreadyExistsKind(kind)
+  ) {
+    if (kind === 'secret_already_exists') {
+      return 'a secret with this key already exists'
+    }
+    if (kind === 'environment_already_exists') {
+      return 'an environment with this name already exists'
+    }
+    return 'the requested resource already exists'
+  }
+
+  switch (code) {
+    case ErrorCode.PARSE:
+      return 'the Locker CLI returned invalid JSON'
+    case ErrorCode.INVALID_REQUEST:
+      return 'the Locker CLI rejected the request envelope'
+    case ErrorCode.METHOD_NOT_FOUND:
+      return 'the requested Locker operation is not supported'
+    case ErrorCode.INVALID_PARAMS:
+      return 'the Locker request parameters are invalid'
+    case ErrorCode.INTERNAL:
+      return 'the Locker CLI encountered an internal protocol error'
+    case ErrorCode.AUTHENTICATION:
+      return 'authentication failed'
+    case ErrorCode.PERMISSION_DENIED:
+      return 'you do not have permission to perform this operation'
+    case ErrorCode.NOT_FOUND:
+      if (kind === 'secret_not_found') {
+        return 'the requested secret was not found'
+      }
+      if (kind === 'environment_not_found') {
+        return 'the requested environment was not found'
+      }
+      return 'the requested resource was not found'
+    case ErrorCode.CONFLICT:
+      return 'the operation conflicts with current state'
+    case ErrorCode.VALIDATION:
+      return 'the request is invalid'
+    case ErrorCode.RATE_LIMITED:
+      return 'too many requests; retry later'
+    case ErrorCode.NETWORK:
+      return kind === 'network_timeout'
+        ? 'network request timed out'
+        : 'network request failed'
+    case ErrorCode.SERVER:
+      if (kind === 'internal_error') {
+        return 'the request could not be completed'
+      }
+      return 'the service is temporarily unavailable'
+    case ErrorCode.STORAGE:
+      return 'local storage operation failed'
+    case ErrorCode.INTEGRITY:
+      return integrityMessage(kind)
+    default:
+      if (code !== ErrorCode.OPERATION_FAILED) {
+        return 'the Locker operation failed'
+      }
+      if (kind === 'conflict') {
+        return 'the operation conflicts with current state'
+      }
+      if (kind === 'validation_error') {
+        return 'the request is invalid'
+      }
+      if (isIntegrityKind(kind)) {
+        return integrityMessage(kind)
+      }
+      if (kind === 'request_rejected') {
+        return 'the request is invalid'
+      }
+      if (kind === 'response_too_large') {
+        return 'protocol response exceeds the size limit'
+      }
+      if (kind === 'cancelled') {
+        return 'request cancelled'
+      }
+      return 'the Locker operation failed'
+  }
+}
+
+function integrityMessage(kind: string): string {
+  switch (kind) {
+    case 'integrity_error':
+      return 'stored data failed an integrity check'
+    case 'transport_integrity_error':
+      return 'transport integrity verification failed'
+    case 'data_integrity_error':
+    case 'data_error':
+      return 'data integrity verification failed'
+    default:
+      return 'data integrity verification failed'
   }
 }

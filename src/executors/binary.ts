@@ -16,8 +16,10 @@ import {
   type VaultContext,
 } from '../abstraction/executor.js'
 import {
+  ErrorCode,
   LockerCancelledError,
   LockerError,
+  LockerProtocolError,
   LockerTimeoutError,
   LockerTransportError,
   errorFromResponse,
@@ -81,6 +83,8 @@ type JSONRPCErrorPayload = {
     protocol_version: number
     kind: string
     retryable: boolean
+    retry_after_seconds?: number
+    server_request_id?: string
   }
 }
 
@@ -128,7 +132,11 @@ function positiveSafeInteger(
   return resolved
 }
 
-function protocolContext(context: VaultContext, clientVersion: string) {
+function protocolContext(
+  context: VaultContext,
+  clientVersion: string,
+  typedErrorContract: boolean,
+) {
   const transport: Record<string, unknown> = {}
   if (context.apiBase !== undefined) {
     transport.api_base = context.apiBase
@@ -150,6 +158,7 @@ function protocolContext(context: VaultContext, clientVersion: string) {
 
   return {
     protocol_version: PROTOCOL_VERSION,
+    ...(typedErrorContract ? { error_contract: 'typed-v1' } : {}),
     credentials: {
       access_key_id: context.accessKeyId,
       secret_access_key: context.secretAccessKey,
@@ -171,16 +180,46 @@ function parseErrorPayload(value: unknown): JSONRPCErrorPayload | undefined {
   if (
     !Number.isSafeInteger(value.code) ||
     typeof value.message !== 'string' ||
-    value.message.trim() === '' ||
+    !isValidErrorMessage(value.message) ||
     !isRecord(data) ||
     !Number.isInteger(data.protocol_version) ||
     typeof data.kind !== 'string' ||
-    data.kind.trim() === '' ||
-    typeof data.retryable !== 'boolean'
+    !isValidErrorKind(data.kind) ||
+    typeof data.retryable !== 'boolean' ||
+    (hasOwn(data, 'retry_after_seconds') &&
+      (!Number.isInteger(data.retry_after_seconds) ||
+        (data.retry_after_seconds as number) < 0 ||
+        (data.retry_after_seconds as number) > 86400)) ||
+    (hasOwn(data, 'server_request_id') &&
+      (typeof data.server_request_id !== 'string' ||
+        !/^[A-Za-z0-9_-]{16,128}$/.test(data.server_request_id)))
   ) {
     return undefined
   }
   return value as JSONRPCErrorPayload
+}
+
+function isValidErrorKind(kind: string): boolean {
+  return /^[a-z][a-z0-9_]{0,63}$/.test(kind)
+}
+
+function isValidErrorMessage(message: string): boolean {
+  if (message.length === 0) {
+    return false
+  }
+  let scalars = 0
+  for (const value of message) {
+    const codePoint = value.codePointAt(0)
+    if (
+      codePoint === undefined ||
+      codePoint <= 0x1f ||
+      (codePoint >= 0x7f && codePoint <= 0x9f) ||
+      ++scalars > 512
+    ) {
+      return false
+    }
+  }
+  return true
 }
 
 function parseResultPayload(value: unknown): JSONRPCResultPayload | undefined {
@@ -217,6 +256,16 @@ function parseCapabilities(value: unknown): ProtocolCapabilities | undefined {
       (method) => typeof method === 'string' && method.trim() !== '',
     ) ||
     new Set(value.methods).size !== value.methods.length ||
+    (value.error_contracts !== undefined &&
+      (!Array.isArray(value.error_contracts) ||
+        value.error_contracts.length > 8 ||
+        !value.error_contracts.every(
+          (contract) =>
+            typeof contract === 'string' &&
+            /^[a-z][a-z0-9-]{0,31}$/.test(contract),
+        ) ||
+        new Set(value.error_contracts).size !==
+          value.error_contracts.length)) ||
     !isRecord(value.limits) ||
     !Number.isSafeInteger(value.limits.max_request_bytes) ||
     (value.limits.max_request_bytes as number) <= 0 ||
@@ -330,7 +379,11 @@ export class BinaryExecutor implements ProtocolExecutor {
     const result = await this.runRPC<T>(
       method,
       {
-        context: protocolContext(context, this.clientVersion),
+        context: protocolContext(
+          context,
+          this.clientVersion,
+          capabilities.error_contracts?.includes('typed-v1') === true,
+        ),
         ...params,
       },
       this.remainingOptions(budget, method),
@@ -370,7 +423,11 @@ export class BinaryExecutor implements ProtocolExecutor {
     const result = this.runRPCSync<T>(
       method,
       {
-        context: protocolContext(context, this.clientVersion),
+        context: protocolContext(
+          context,
+          this.clientVersion,
+          capabilities.error_contracts?.includes('typed-v1') === true,
+        ),
         ...params,
       },
       this.remainingOptions(budget, method),
@@ -937,9 +994,14 @@ export class BinaryExecutor implements ProtocolExecutor {
     if (hasError) {
       const error = parseErrorPayload(parsed.error)
       if (!error || error.data.protocol_version !== PROTOCOL_VERSION) {
-        throw new LockerTransportError(
+        throw new LockerProtocolError(
           'Locker CLI returned an invalid JSON-RPC error',
-          { method, requestId },
+          {
+            code: ErrorCode.INTERNAL,
+            kind: 'invalid_response',
+            retryable: false,
+            requestId,
+          },
         )
       }
       throw errorFromResponse(
@@ -948,6 +1010,8 @@ export class BinaryExecutor implements ProtocolExecutor {
         error.data.kind,
         error.data.retryable,
         requestId,
+        error.data.retry_after_seconds,
+        error.data.server_request_id,
       )
     }
 

@@ -481,7 +481,7 @@ export async function verifyArtifact(artifactPath, root, packageJSON) {
     'scripts/install-cli.mjs',
     'setup.js',
   ]
-  const pendingDirectories = ['lib']
+  const pendingDirectories = ['lib', 'protocol']
   while (pendingDirectories.length > 0) {
     const relativeDirectory = pendingDirectories.pop()
     const directory = path.join(root, relativeDirectory)

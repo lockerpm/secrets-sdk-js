@@ -233,28 +233,74 @@ ID:
 
 ```ts
 import {
+  LockerAlreadyExistsError,
   LockerAuthenticationError,
+  LockerConflictError,
   LockerNotFoundError,
   LockerRateLimitError,
   LockerTransportError,
 } from 'lockersm'
 
 try {
-  await locker.getRequired('DATABASE_PASSWORD')
+  await locker.create({
+    key: 'PAYMENT_API_KEY',
+    value: paymentApiKey,
+  })
 } catch (error) {
-  if (error instanceof LockerNotFoundError) {
+  if (error instanceof LockerAlreadyExistsError) {
+    // PAYMENT_API_KEY already exists.
+    // This is also a LockerConflictError.
+  } else if (error instanceof LockerNotFoundError) {
     // Secret does not exist.
   } else if (error instanceof LockerAuthenticationError) {
     // Credentials are invalid or revoked.
   } else if (error instanceof LockerRateLimitError && error.retryable) {
-    // Retry with backoff.
+    // retryAfterSeconds is an optional validated 0..86400 hint.
   } else if (error instanceof LockerTransportError) {
     // The CLI process did not complete a valid protocol exchange.
   }
 }
 ```
 
-Error objects and logs never retain protocol bodies or CLI output.
+| Protocol code | JavaScript error                                   | Canonical kind                                                           |
+| ------------: | -------------------------------------------------- | ------------------------------------------------------------------------ |
+|      `-32700` | `LockerProtocolError`                              | `parse_error`                                                            |
+|      `-32600` | `LockerProtocolError`                              | `invalid_request`                                                        |
+|      `-32601` | `LockerProtocolError`                              | `method_not_found`                                                       |
+|      `-32602` | `LockerProtocolError`                              | `invalid_params`                                                         |
+|      `-32603` | `LockerProtocolError`                              | `internal_protocol_error`                                                |
+|      `-32000` | `LockerError` and legacy subtypes                  | `operation_error`, `request_rejected`, `response_too_large`, `cancelled` |
+|      `-32001` | `LockerAuthenticationError`                        | `unauthorized`; legacy `invalid_secret_access_key`                       |
+|      `-32003` | `LockerPermissionError`                            | `forbidden`; legacy `permission_denied`                                  |
+|      `-32004` | `LockerNotFoundError`                              | `secret_not_found`, `environment_not_found`; legacy not-found aliases    |
+|      `-32009` | `LockerConflictError` / `LockerAlreadyExistsError` | `conflict`, `secret_already_exists`, `environment_already_exists`        |
+|      `-32022` | `LockerValidationError`                            | `validation_error`                                                       |
+|      `-32029` | `LockerRateLimitError`                             | `rate_limited`                                                           |
+|      `-32050` | `LockerNetworkError`                               | `network_error`, `network_timeout`; legacy `http_error`                  |
+|      `-32051` | `LockerServerError`                                | `service_unavailable`, `internal_error`; legacy `server_error`           |
+|      `-32060` | `LockerStorageError`                               | `database_error`, `file_error`, `path_error`                             |
+|      `-32070` | `LockerIntegrityError`                             | integrity, transport-integrity, and data-integrity kinds                 |
+
+Classification is numeric-first. Distinctive kinds from older CLI releases
+(`duplicate_hash`, `*_already_exists`, `conflict`, `validation_error`, and
+the integrity aliases) are also mapped when their legacy code is `-32000`.
+`request_rejected`, `response_too_large`, and `cancelled` have explicit
+subtypes but are never guessed to be conflicts. All `-32000` errors and known
+authentication, permission, not-found, conflict, validation, storage,
+integrity, protocol, cancellation, and internal-server errors expose
+`retryable === false`. Only rate-limit, network, service-unavailable, or an
+unknown server-range code can preserve a true hint. The SDK never replays a
+vault RPC automatically.
+
+The SDK opts into typed errors only after `system.capabilities` advertises the
+exact `typed-v1` value in `error_contracts`; absent and unknown valid
+contracts remain compatible and are not sent in operation context.
+`serverRequestId` is a separately validated upstream correlation ID. It never
+replaces the local JSON-RPC `requestId` and is not included in default error
+text.
+
+Error objects and logs never retain protocol bodies, raw CLI messages, or CLI
+output. Upgrade the CLI to receive the unambiguous numeric codes above.
 
 ## Import and export
 

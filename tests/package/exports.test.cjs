@@ -14,8 +14,15 @@ test('CommonJS and ESM exports expose the same public SDK', async () => {
     'EmptyOutputError',
     'Environment',
     'Locker',
+    'LockerAlreadyExistsError',
+    'LockerConflictError',
+    'LockerIntegrityError',
     'LockerNotFoundError',
+    'LockerOperationCancelledError',
+    'LockerRequestRejectedError',
+    'LockerResponseTooLargeError',
     'LockerTransportError',
+    'LockerValidationError',
     'Secret',
   ]) {
     assert.equal(typeof commonJS[name], 'function')

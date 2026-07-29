@@ -22,6 +22,7 @@
   },
   "files": [
     "lib/**/*",
+    "protocol/**/*",
     "scripts/install-cli.mjs",
     "locker-cli-release.json",
     "setup.js"

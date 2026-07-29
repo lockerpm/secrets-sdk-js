@@ -18,10 +18,21 @@ const {
 } = require('../../lib/cjs/src/executors/process.js')
 const {
   ErrorCode,
+  errorFromResponse,
+  LockerAlreadyExistsError,
   LockerCancelledError,
+  LockerConflictError,
+  LockerError,
+  LockerIntegrityError,
   LockerNotFoundError,
+  LockerOperationCancelledError,
+  LockerProtocolError,
+  LockerRequestRejectedError,
+  LockerResponseTooLargeError,
+  LockerServerError,
   LockerTimeoutError,
   LockerTransportError,
+  LockerValidationError,
   LogLevel,
 } = require('../../lib/cjs/index.js')
 const { Logger } = require('../../lib/cjs/src/utils/logger.js')
@@ -58,7 +69,7 @@ function resultResponse(request, data, extra = {}) {
 }
 
 function capabilities(overrides = {}) {
-  return {
+  const result = {
     protocol: {
       name: 'locker.sdk',
       min_version: 1,
@@ -77,11 +88,16 @@ function capabilities(overrides = {}) {
       ...overrides.limits,
     },
   }
+  if (overrides.error_contracts !== null) {
+    result.error_contracts = overrides.error_contracts ?? ['typed-v1']
+  }
+  return result
 }
 
 class FakeRunner {
-  constructor(handler) {
+  constructor(handler, advertisedCapabilities = capabilities()) {
     this.handler = handler
+    this.advertisedCapabilities = advertisedCapabilities
     this.calls = []
   }
 
@@ -97,7 +113,7 @@ class FakeRunner {
     this.calls.push(call)
     const stdout =
       request.method === 'system.capabilities'
-        ? resultResponse(request, capabilities())
+        ? resultResponse(request, this.advertisedCapabilities)
         : this.handler(request)
     return {
       stdout,
@@ -185,6 +201,7 @@ test('negotiates capabilities once and sends only sdk in argv', async () => {
   assert.equal(typeof operation.id, 'string')
   assert.deepEqual(operation.params.context, {
     protocol_version: 1,
+    error_contract: 'typed-v1',
     credentials: {
       access_key_id: 'access-id',
       secret_access_key: 'credential-secret', // locker:allow-secret -- protocol fixture
@@ -205,6 +222,47 @@ test('negotiates capabilities once and sends only sdk in argv', async () => {
       max_age_seconds: 0,
     },
   })
+})
+
+test('binds typed errors only when the exact capability is advertised', async () => {
+  for (const advertised of [
+    capabilities({ error_contracts: null }),
+    capabilities({ error_contracts: ['future-v2'] }),
+  ]) {
+    const runner = new FakeRunner(
+      (request) => resultResponse(request, { ok: true }),
+      advertised,
+    )
+    assert.deepEqual(
+      await executorFor(runner).execute('secret.get', context, {
+        key: 'DATABASE_PASSWORD',
+      }),
+      { ok: true },
+    )
+    assert.equal(
+      Object.hasOwn(runner.calls[1].request.params.context, 'error_contract'),
+      false,
+    )
+  }
+
+  for (const errorContracts of [
+    ['typed-v1', 'typed-v1'],
+    ['Invalid_Contract'],
+  ]) {
+    const runner = new FakeRunner(
+      () => {
+        throw new Error('operation must not run')
+      },
+      capabilities({ error_contracts: errorContracts }),
+    )
+    await assert.rejects(
+      executorFor(runner).execute('secret.get', context, {
+        key: 'DATABASE_PASSWORD',
+      }),
+      LockerTransportError,
+    )
+    assert.equal(runner.calls.length, 1)
+  }
 })
 
 test('one timeout budget covers capability negotiation and operation', async () => {
@@ -262,6 +320,412 @@ test('maps JSON-RPC NOT_FOUND and retains stable metadata', async () => {
       return true
     },
   )
+})
+
+test('maps stable and legacy operation error taxonomy', async () => {
+  const cases = [
+    {
+      code: ErrorCode.CONFLICT,
+      kind: 'secret_already_exists',
+      type: LockerAlreadyExistsError,
+      message: 'a secret with this key already exists',
+    },
+    {
+      code: ErrorCode.CONFLICT,
+      kind: 'conflict',
+      type: LockerConflictError,
+      message: 'the operation conflicts with current state',
+    },
+    {
+      code: ErrorCode.VALIDATION,
+      kind: 'validation_error',
+      type: LockerValidationError,
+      message: 'the request is invalid',
+    },
+    {
+      code: ErrorCode.INTEGRITY,
+      kind: 'integrity_error',
+      type: LockerIntegrityError,
+      message: 'stored data failed an integrity check',
+    },
+    {
+      code: ErrorCode.SERVER,
+      kind: 'internal_error',
+      type: LockerServerError,
+      message: 'the request could not be completed',
+    },
+    {
+      code: ErrorCode.OPERATION_FAILED,
+      kind: 'duplicate_hash',
+      type: LockerAlreadyExistsError,
+      message: 'the requested resource already exists',
+    },
+    {
+      code: ErrorCode.OPERATION_FAILED,
+      kind: 'conflict',
+      type: LockerConflictError,
+      message: 'the operation conflicts with current state',
+    },
+    {
+      code: ErrorCode.OPERATION_FAILED,
+      kind: 'request_rejected',
+      type: LockerRequestRejectedError,
+      message: 'the request is invalid',
+    },
+    {
+      code: ErrorCode.OPERATION_FAILED,
+      kind: 'response_too_large',
+      type: LockerResponseTooLargeError,
+      message: 'protocol response exceeds the size limit',
+    },
+    {
+      code: ErrorCode.OPERATION_FAILED,
+      kind: 'cancelled',
+      type: LockerOperationCancelledError,
+      message: 'request cancelled',
+    },
+  ]
+
+  for (const taxonomy of cases) {
+    const runner = new FakeRunner((request) =>
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: taxonomy.code,
+          message: 'sensitive-value-from-broken-cli',
+          data: {
+            protocol_version: 1,
+            kind: taxonomy.kind,
+            retryable: true,
+          },
+        },
+      }),
+    )
+
+    await assert.rejects(
+      executorFor(runner).execute('secret.create', context, {
+        key: 'PAYMENT_API_KEY',
+        value: 'secret-value',
+      }),
+      (error) => {
+        assert.ok(error instanceof taxonomy.type)
+        assert.equal(error.code, taxonomy.code)
+        assert.equal(error.kind, taxonomy.kind)
+        assert.equal(error.retryable, false)
+        assert.equal(error.message, taxonomy.message)
+        assert.doesNotMatch(error.message, /sensitive-value/)
+        if (error instanceof LockerAlreadyExistsError) {
+          assert.ok(error instanceof LockerConflictError)
+        }
+        return true
+      },
+    )
+  }
+
+  const generic = new FakeRunner((request) =>
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: request.id,
+      error: {
+        code: ErrorCode.OPERATION_FAILED,
+        message: 'generic rejection',
+        data: {
+          protocol_version: 1,
+          kind: 'request_rejected',
+          retryable: false,
+        },
+      },
+    }),
+  )
+  await assert.rejects(
+    executorFor(generic).execute('secret.create', context, {}),
+    (error) => {
+      assert.equal(error.constructor, LockerRequestRejectedError)
+      assert.ok(error instanceof LockerError)
+      assert.equal(error.message, 'the request is invalid')
+      assert.equal(error.retryable, false)
+      return true
+    },
+  )
+
+  const futureServer = new FakeRunner((request) =>
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: request.id,
+      error: {
+        code: -32099,
+        message: 'safe future error',
+        data: {
+          protocol_version: 1,
+          kind: 'future_error',
+          retryable: true,
+        },
+      },
+    }),
+  )
+  await assert.rejects(
+    executorFor(futureServer).execute('secret.get', context, {}),
+    (error) => {
+      assert.equal(error.constructor, LockerError)
+      assert.equal(error.code, -32099)
+      assert.equal(error.retryable, true)
+      return true
+    },
+  )
+
+  const futureKnownKind = new FakeRunner((request) =>
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: request.id,
+      error: {
+        code: -32099,
+        message: 'safe future error',
+        data: {
+          protocol_version: 1,
+          kind: 'secret_already_exists',
+          retryable: true,
+        },
+      },
+    }),
+  )
+  await assert.rejects(
+    executorFor(futureKnownKind).execute('secret.get', context, {}),
+    (error) => {
+      assert.equal(error.constructor, LockerError)
+      assert.equal(error.message, 'the Locker operation failed')
+      assert.equal(error.retryable, true)
+      return true
+    },
+  )
+
+  for (const malformed of [
+    { code: -32100, kind: 'future_error', message: 'safe error' },
+    { code: -32000, kind: 'Invalid-Kind', message: 'safe error' },
+    { code: -32000, kind: 'operation_error', message: 'line one\nline two' },
+    { code: -32000, kind: 'operation_error', message: 'é'.repeat(513) },
+  ]) {
+    const runner = new FakeRunner((request) =>
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: malformed.code,
+          message: malformed.message,
+          data: {
+            protocol_version: 1,
+            kind: malformed.kind,
+            retryable: false,
+          },
+        },
+      }),
+    )
+    await assert.rejects(
+      executorFor(runner).execute('secret.get', context, {}),
+      LockerProtocolError,
+    )
+  }
+})
+
+test('uses canonical protocol messages and closed retry semantics', () => {
+  const cases = [
+    [
+      ErrorCode.PARSE,
+      'parse_error',
+      'the Locker CLI returned invalid JSON',
+      false,
+    ],
+    [
+      ErrorCode.INVALID_REQUEST,
+      'invalid_request',
+      'the Locker CLI rejected the request envelope',
+      false,
+    ],
+    [
+      ErrorCode.METHOD_NOT_FOUND,
+      'method_not_found',
+      'the requested Locker operation is not supported',
+      false,
+    ],
+    [
+      ErrorCode.INVALID_PARAMS,
+      'invalid_params',
+      'the Locker request parameters are invalid',
+      false,
+    ],
+    [
+      ErrorCode.INTERNAL,
+      'internal_protocol_error',
+      'the Locker CLI encountered an internal protocol error',
+      false,
+    ],
+    [
+      ErrorCode.AUTHENTICATION,
+      'authentication_error',
+      'authentication failed',
+      false,
+    ],
+    [
+      ErrorCode.PERMISSION_DENIED,
+      'permission_denied',
+      'you do not have permission to perform this operation',
+      false,
+    ],
+    [
+      ErrorCode.NOT_FOUND,
+      'not_found_error',
+      'the requested resource was not found',
+      false,
+    ],
+    [
+      ErrorCode.STORAGE,
+      'storage_error',
+      'local storage operation failed',
+      false,
+    ],
+    [
+      ErrorCode.SERVER,
+      'internal_error',
+      'the request could not be completed',
+      false,
+    ],
+    [
+      ErrorCode.SERVER,
+      'service_unavailable',
+      'the service is temporarily unavailable',
+      true,
+    ],
+  ]
+  for (const [code, kind, message, retryable] of cases) {
+    const error = errorFromResponse(
+      code,
+      'sensitive-value-from-broken-cli',
+      kind,
+      true,
+      'request-canonical',
+    )
+    assert.equal(error.message, message)
+    assert.equal(error.retryable, retryable)
+  }
+})
+
+test('validates and exposes rate-limit retry-after metadata without retrying', async () => {
+  for (const retryAfterSeconds of [0, 86400]) {
+    const runner = new FakeRunner((request) =>
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: ErrorCode.RATE_LIMITED,
+          message: 'unsafe rate limit detail',
+          data: {
+            protocol_version: 1,
+            kind: 'rate_limited',
+            retryable: true,
+            retry_after_seconds: retryAfterSeconds,
+          },
+        },
+      }),
+    )
+    await assert.rejects(
+      executorFor(runner).execute('secret.get', context, {}),
+      (error) => {
+        assert.equal(error.retryAfterSeconds, retryAfterSeconds)
+        assert.equal(error.retryable, true)
+        return true
+      },
+    )
+    assert.equal(runner.calls.length, 2)
+  }
+
+  for (const retryAfterSeconds of [true, -1, 86401, 1.5]) {
+    const runner = new FakeRunner((request) =>
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: ErrorCode.RATE_LIMITED,
+          message: 'unsafe rate limit detail',
+          data: {
+            protocol_version: 1,
+            kind: 'rate_limited',
+            retryable: true,
+            retry_after_seconds: retryAfterSeconds,
+          },
+        },
+      }),
+    )
+    await assert.rejects(
+      executorFor(runner).execute('secret.get', context, {}),
+      LockerProtocolError,
+    )
+  }
+
+  const serverError = errorFromResponse(
+    ErrorCode.SERVER,
+    'unsafe server detail',
+    'service_unavailable',
+    true,
+    'request-server',
+    30,
+  )
+  assert.equal(serverError.retryAfterSeconds, undefined)
+})
+
+test('validates and separates the upstream server request id', async () => {
+  const serverRequestId = 'upstream_Request-123456'
+  const runner = new FakeRunner((request) =>
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: request.id,
+      error: {
+        code: ErrorCode.SERVER,
+        message: 'unsafe server detail',
+        data: {
+          protocol_version: 1,
+          kind: 'service_unavailable',
+          retryable: true,
+          server_request_id: serverRequestId,
+        },
+      },
+    }),
+  )
+  await assert.rejects(
+    executorFor(runner).execute('secret.get', context, {}),
+    (error) => {
+      assert.notEqual(error.requestId, error.serverRequestId)
+      assert.equal(error.serverRequestId, serverRequestId)
+      return true
+    },
+  )
+
+  for (const invalid of [
+    true,
+    'short',
+    'request.id.not.allowed',
+    'a'.repeat(129),
+  ]) {
+    const invalidRunner = new FakeRunner((request) =>
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: request.id,
+        error: {
+          code: ErrorCode.SERVER,
+          message: 'unsafe server detail',
+          data: {
+            protocol_version: 1,
+            kind: 'service_unavailable',
+            retryable: true,
+            server_request_id: invalid,
+          },
+        },
+      }),
+    )
+    await assert.rejects(
+      executorFor(invalidRunner).execute('secret.get', context, {}),
+      LockerProtocolError,
+    )
+  }
 })
 
 test('rejects mismatched response ids and incompatible capabilities', async () => {
