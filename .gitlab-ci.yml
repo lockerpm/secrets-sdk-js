@@ -133,9 +133,9 @@ auto_release:
       --root "$CI_PROJECT_DIR/.release-source"
       --tag "$LOCKER_RELEASE_TAG"
       --artifact "$RELEASE_ARTIFACT"
-    - rm -rf .release-smoke
-    - mkdir .release-smoke
-    - cd .release-smoke
+    - rm -rf release-smoke
+    - mkdir release-smoke
+    - cd release-smoke
     - npm init --yes
     - npm install --ignore-scripts --no-package-lock "../$RELEASE_ARTIFACT"
     - node --eval "require('lockersm')"
