@@ -1,6 +1,8 @@
 import process from 'node:process'
 import {
+  ErrorCode,
   LogLevel,
+  errorFromResponse,
   isLockerNotFoundError,
   type CacheOptions,
   type ExportFormat,
@@ -31,8 +33,18 @@ const MAX_HEADER_COUNT = 64
 const MAX_CACHE_AGE_SECONDS = 86_400
 const MAX_LIST_PAGE_SIZE = 1_000
 const MAX_LIST_CURSOR_BYTES = 4_096
+const ACCESS_KEY_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const CANONICAL_BASE64_PATTERN =
+  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
+const CREDENTIAL_VALIDATION_REQUEST_ID = 'credential-validation'
 
 type EnvironmentSource = Readonly<Record<string, string | undefined>>
+
+type NormalizedCredentials = {
+  accessKeyId: string
+  secretAccessKey: string
+}
 
 function requireString(
   value: unknown,
@@ -165,6 +177,57 @@ function firstEnvironmentValue(
   return undefined
 }
 
+function credentialError(kind: string): never {
+  throw errorFromResponse(
+    ErrorCode.AUTHENTICATION,
+    '',
+    kind,
+    false,
+    CREDENTIAL_VALIDATION_REQUEST_ID,
+  )
+}
+
+function normalizeCredentials(
+  accessKeyIdValue: unknown,
+  secretAccessKeyValue: unknown,
+): NormalizedCredentials {
+  if (
+    typeof accessKeyIdValue !== 'string' ||
+    typeof secretAccessKeyValue !== 'string'
+  ) {
+    return credentialError('missing_credentials')
+  }
+
+  const accessKeyId = accessKeyIdValue.trim()
+  const secretAccessKey = secretAccessKeyValue.trim()
+  if (accessKeyId === '' || secretAccessKey === '') {
+    return credentialError('missing_credentials')
+  }
+  if (
+    accessKeyId.length > MAX_PROTOCOL_NAME_LENGTH ||
+    !ACCESS_KEY_ID_PATTERN.test(accessKeyId)
+  ) {
+    return credentialError('invalid_access_key_id')
+  }
+  if (
+    secretAccessKey.length > MAX_PROTOCOL_NAME_LENGTH ||
+    !CANONICAL_BASE64_PATTERN.test(secretAccessKey)
+  ) {
+    return credentialError('malformed_secret_access_key')
+  }
+
+  const decodedSecretAccessKey = Buffer.from(secretAccessKey, 'base64')
+  if (
+    decodedSecretAccessKey.length === 0 ||
+    decodedSecretAccessKey.toString('base64') !== secretAccessKey
+  ) {
+    decodedSecretAccessKey.fill(0)
+    return credentialError('malformed_secret_access_key')
+  }
+  decodedSecretAccessKey.fill(0)
+  return { accessKeyId, secretAccessKey }
+}
+
 export class Locker implements ILockerSecret {
   #accessKeyId: string
   #secretAccessKey: string
@@ -180,11 +243,12 @@ export class Locker implements ILockerSecret {
     if (!options || typeof options !== 'object') {
       throw new TypeError('Locker options are required')
     }
-    this.#accessKeyId = requireString(options.accessKeyId, 'accessKeyId')
-    this.#secretAccessKey = requireString(
+    const credentials = normalizeCredentials(
+      options.accessKeyId,
       options.secretAccessKey,
-      'secretAccessKey',
     )
+    this.#accessKeyId = credentials.accessKeyId
+    this.#secretAccessKey = credentials.secretAccessKey
     this.apiBase =
       options.apiBase === undefined || options.apiBase === ''
         ? DEFAULT_BASE_API
@@ -223,20 +287,17 @@ export class Locker implements ILockerSecret {
       apiBase: lockerOptions.apiBase ?? env.LOCKER_API_BASE,
       cliPath:
         lockerOptions.cliPath || env.LOCKER_CLI_PATH?.trim() || undefined,
-      accessKeyId: requireString(
-        firstEnvironmentValue(env, 'LOCKER_ACCESS_KEY_ID', 'ACCESS_KEY_ID'),
-        'LOCKER_ACCESS_KEY_ID',
-      ),
-      secretAccessKey: requireString(
+      accessKeyId:
+        firstEnvironmentValue(env, 'LOCKER_ACCESS_KEY_ID', 'ACCESS_KEY_ID') ??
+        '',
+      secretAccessKey:
         firstEnvironmentValue(
           env,
           'LOCKER_SECRET_ACCESS_KEY',
           'SECRET_ACCESS_KEY',
           'LOCKER_ACCESS_KEY_SECRET',
           'ACCESS_KEY_SECRET',
-        ),
-        'LOCKER_SECRET_ACCESS_KEY',
-      ),
+        ) ?? '',
     })
   }
 
@@ -245,7 +306,8 @@ export class Locker implements ILockerSecret {
   }
 
   set accessKeyId(value: string) {
-    this.#accessKeyId = requireString(value, 'accessKeyId')
+    const credentials = normalizeCredentials(value, this.#secretAccessKey)
+    this.#accessKeyId = credentials.accessKeyId
   }
 
   get secretAccessKey(): string {
@@ -253,7 +315,8 @@ export class Locker implements ILockerSecret {
   }
 
   set secretAccessKey(value: string) {
-    this.#secretAccessKey = requireString(value, 'secretAccessKey')
+    const credentials = normalizeCredentials(this.#accessKeyId, value)
+    this.#secretAccessKey = credentials.secretAccessKey
   }
 
   get headers(): Record<string, string> | undefined {

@@ -26,7 +26,7 @@ const {
 } = require('../../lib/cjs/index.js')
 
 const CATALOG_SHA256 =
-  '631ac21d6add27f7bac24e889fc565ca4cdb790c45ee4068c489481ca58594f5'
+  'bec020bea51d694371d738a9a44c17644ea66728706d7027f6bc86988ee93c7d'
 
 test('vendored RPC catalog matches runtime error mapping', () => {
   const raw = readFileSync(

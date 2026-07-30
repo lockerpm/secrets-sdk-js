@@ -45,8 +45,8 @@ const legacyEnvironment: IEnvironment = {
 }
 
 const locker = new Locker({
-  accessKeyId: 'access-id',
-  secretAccessKey: 'secret-access-key',
+  accessKeyId: '00000000-0000-4000-8000-000000000001',
+  secretAccessKey: 'Zml4dHVyZS1zZWNyZXQ=',
   executor: protocolExecutor,
 })
 const secret = new Secret({ key: 'API_KEY', value: 'value' })

@@ -32,6 +32,9 @@
   validate executability on POSIX, document the exact cross-SDK credential
   alias precedence, and include the declared Apache-2.0 license text in
   published packages.
+- Validate and normalize credentials before CLI resolution, and expose safe,
+  kind-specific non-retryable authentication messages for missing, malformed,
+  mismatched, and unauthorized credentials.
 
 ### Migration
 

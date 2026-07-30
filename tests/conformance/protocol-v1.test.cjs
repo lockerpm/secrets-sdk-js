@@ -158,8 +158,8 @@ function executorFor(runner) {
 }
 
 const context = {
-  accessKeyId: 'access-id',
-  secretAccessKey: 'credential-secret', // locker:allow-secret -- protocol fixture
+  accessKeyId: '00000000-0000-4000-8000-000000000001',
+  secretAccessKey: 'Zml4dHVyZS1zZWNyZXQ=', // locker:allow-secret -- protocol fixture
   apiBase: 'https://example.test/locker',
   headers: {
     'CF-Access-Client-Secret': 'header-secret',
@@ -192,7 +192,7 @@ test('negotiates capabilities once and sends only sdk in argv', async () => {
     assert.deepEqual(call.args, ['sdk'])
     assert.doesNotMatch(
       JSON.stringify(call.args),
-      /credential-secret|header-secret|DATABASE_PASSWORD/,
+      /Zml4dHVyZS1zZWNyZXQ=|header-secret|DATABASE_PASSWORD/,
     )
   }
 
@@ -203,8 +203,8 @@ test('negotiates capabilities once and sends only sdk in argv', async () => {
     protocol_version: 1,
     error_contract: 'typed-v1',
     credentials: {
-      access_key_id: 'access-id',
-      secret_access_key: 'credential-secret', // locker:allow-secret -- protocol fixture
+      access_key_id: '00000000-0000-4000-8000-000000000001',
+      secret_access_key: 'Zml4dHVyZS1zZWNyZXQ=', // locker:allow-secret -- protocol fixture
     },
     client: {
       name: 'locker-js',
@@ -561,10 +561,29 @@ test('uses canonical protocol messages and closed retry semantics', () => {
     ],
     [
       ErrorCode.AUTHENTICATION,
-      'authentication_error',
-      'authentication failed',
+      'missing_credentials',
+      'access key ID and secret access key are required',
       false,
     ],
+    [
+      ErrorCode.AUTHENTICATION,
+      'invalid_access_key_id',
+      'access key ID must be a UUIDv4',
+      false,
+    ],
+    [
+      ErrorCode.AUTHENTICATION,
+      'malformed_secret_access_key',
+      'secret access key must be non-empty canonical base64',
+      false,
+    ],
+    [
+      ErrorCode.AUTHENTICATION,
+      'invalid_secret_access_key',
+      'the secret access key does not match the access key ID',
+      false,
+    ],
+    [ErrorCode.AUTHENTICATION, 'unauthorized', 'authentication failed', false],
     [
       ErrorCode.PERMISSION_DENIED,
       'permission_denied',
@@ -1004,7 +1023,7 @@ test('maps process cancellation and timeout without retaining payloads', async (
       }),
       (error) => {
         assert.ok(error instanceof ErrorType)
-        assert.doesNotMatch(error.message, /sensitive|credential-secret/)
+        assert.doesNotMatch(error.message, /sensitive|Zml4dHVyZS1zZWNyZXQ=/)
         return true
       },
     )

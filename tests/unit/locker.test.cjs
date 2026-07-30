@@ -14,6 +14,11 @@ const {
   Secret,
 } = require('../../lib/cjs/index.js')
 
+const TEST_ACCESS_KEY_ID = '00000000-0000-4000-8000-000000000001'
+const ALTERNATE_ACCESS_KEY_ID = '00000000-0000-4000-8000-000000000002'
+const TEST_SECRET_ACCESS_KEY = 'Zml4dHVyZS1zZWNyZXQ=' // locker:allow-secret -- canonical base64 fixture
+const ALTERNATE_SECRET_ACCESS_KEY = 'YWx0ZXJuYXRlLXNlY3JldA==' // locker:allow-secret -- canonical base64 fixture
+
 function secret(overrides = {}) {
   return {
     object: 'secret',
@@ -78,8 +83,8 @@ class StubExecutor {
 
 function lockerWith(executor, overrides = {}) {
   return new Locker({
-    accessKeyId: 'access-id',
-    secretAccessKey: 'credential-secret', // locker:allow-secret -- client fixture
+    accessKeyId: TEST_ACCESS_KEY_ID,
+    secretAccessKey: TEST_SECRET_ACCESS_KEY,
     headers: {
       'CF-Access-Client-Secret': 'header-secret',
     },
@@ -184,7 +189,10 @@ test('Locker serialization never contains credentials or custom headers', () => 
   const locker = lockerWith(new StubExecutor(() => []))
   const serialized = JSON.stringify(locker)
 
-  assert.doesNotMatch(serialized, /access-id|credential-secret|header-secret/)
+  assert.doesNotMatch(
+    serialized,
+    new RegExp(`${TEST_ACCESS_KEY_ID}|${TEST_SECRET_ACCESS_KEY}|header-secret`),
+  )
   assert.deepEqual(JSON.parse(serialized), {
     apiBase: 'https://api.locker.io/locker_secrets',
     unsafe: false,
@@ -194,18 +202,18 @@ test('Locker serialization never contains credentials or custom headers', () => 
 test('fromEnv uses the canonical Locker credential variable names', () => {
   const locker = Locker.fromEnv({
     env: {
-      LOCKER_ACCESS_KEY_ID: 'environment-access',
-      ACCESS_KEY_ID: 'legacy-access',
-      LOCKER_SECRET_ACCESS_KEY: 'environment-secret', // locker:allow-secret -- precedence fixture
-      SECRET_ACCESS_KEY: 'legacy-secret', // locker:allow-secret -- precedence fixture
-      LOCKER_ACCESS_KEY_SECRET: 'older-secret', // locker:allow-secret -- precedence fixture
-      ACCESS_KEY_SECRET: 'oldest-secret', // locker:allow-secret -- precedence fixture
+      LOCKER_ACCESS_KEY_ID: TEST_ACCESS_KEY_ID,
+      ACCESS_KEY_ID: ALTERNATE_ACCESS_KEY_ID,
+      LOCKER_SECRET_ACCESS_KEY: TEST_SECRET_ACCESS_KEY,
+      SECRET_ACCESS_KEY: ALTERNATE_SECRET_ACCESS_KEY,
+      LOCKER_ACCESS_KEY_SECRET: 'b2xkZXItc2VjcmV0', // locker:allow-secret -- precedence fixture
+      ACCESS_KEY_SECRET: 'b2xkZXN0LXNlY3JldA==', // locker:allow-secret -- precedence fixture
       LOCKER_API_BASE: 'https://environment.example/locker',
     },
     executor: new StubExecutor(() => []),
   })
-  assert.equal(locker.accessKeyId, 'environment-access')
-  assert.equal(locker.secretAccessKey, 'environment-secret')
+  assert.equal(locker.accessKeyId, TEST_ACCESS_KEY_ID)
+  assert.equal(locker.secretAccessKey, TEST_SECRET_ACCESS_KEY)
   assert.equal(locker.apiBase, 'https://environment.example/locker')
 })
 
@@ -213,32 +221,117 @@ test('fromEnv accepts historical aliases only as migration fallbacks', () => {
   const cases = [
     [
       {
-        SECRET_ACCESS_KEY: 'legacy',
-        LOCKER_ACCESS_KEY_SECRET: 'older',
-        ACCESS_KEY_SECRET: 'oldest',
+        SECRET_ACCESS_KEY: TEST_SECRET_ACCESS_KEY,
+        LOCKER_ACCESS_KEY_SECRET: ALTERNATE_SECRET_ACCESS_KEY,
+        ACCESS_KEY_SECRET: 'b2xkZXN0LXNlY3JldA==', // locker:allow-secret -- precedence fixture
       },
-      'legacy',
+      TEST_SECRET_ACCESS_KEY,
     ],
     [
       {
-        LOCKER_ACCESS_KEY_SECRET: 'older',
-        ACCESS_KEY_SECRET: 'oldest',
+        LOCKER_ACCESS_KEY_SECRET: ALTERNATE_SECRET_ACCESS_KEY,
+        ACCESS_KEY_SECRET: 'b2xkZXN0LXNlY3JldA==', // locker:allow-secret -- precedence fixture
       },
-      'older',
+      ALTERNATE_SECRET_ACCESS_KEY,
     ],
-    [{ ACCESS_KEY_SECRET: 'oldest' }, 'oldest'],
+    [
+      {
+        ACCESS_KEY_SECRET: 'b2xkZXN0LXNlY3JldA==', // locker:allow-secret -- precedence fixture
+      },
+      'b2xkZXN0LXNlY3JldA==',
+    ],
   ]
 
   for (const [environment, expected] of cases) {
     const locker = Locker.fromEnv({
       env: {
-        ACCESS_KEY_ID: 'legacy-access',
+        ACCESS_KEY_ID: ALTERNATE_ACCESS_KEY_ID,
         ...environment,
       },
       executor: new StubExecutor(() => []),
     })
-    assert.equal(locker.accessKeyId, 'legacy-access')
+    assert.equal(locker.accessKeyId, ALTERNATE_ACCESS_KEY_ID)
     assert.equal(locker.secretAccessKey, expected)
+  }
+})
+
+test('credentials are normalized before reaching the protocol executor', async () => {
+  const executor = new StubExecutor(() => [])
+  const locker = lockerWith(executor, {
+    accessKeyId: ` \t${TEST_ACCESS_KEY_ID}\r\n`,
+    secretAccessKey: `\n${TEST_SECRET_ACCESS_KEY} `,
+  })
+
+  assert.equal(locker.accessKeyId, TEST_ACCESS_KEY_ID)
+  assert.equal(locker.secretAccessKey, TEST_SECRET_ACCESS_KEY)
+  await locker.list()
+  assert.equal(executor.calls[0].context.accessKeyId, TEST_ACCESS_KEY_ID)
+  assert.equal(
+    executor.calls[0].context.secretAccessKey,
+    TEST_SECRET_ACCESS_KEY,
+  )
+
+  locker.accessKeyId = ` ${ALTERNATE_ACCESS_KEY_ID} `
+  locker.secretAccessKey = ` ${ALTERNATE_SECRET_ACCESS_KEY} `
+  assert.equal(locker.accessKeyId, ALTERNATE_ACCESS_KEY_ID)
+  assert.equal(locker.secretAccessKey, ALTERNATE_SECRET_ACCESS_KEY)
+})
+
+test('invalid credentials fail with typed safe errors before CLI resolution', () => {
+  const cases = [
+    [
+      undefined,
+      TEST_SECRET_ACCESS_KEY,
+      'missing_credentials',
+      'access key ID and secret access key are required',
+    ],
+    [
+      TEST_ACCESS_KEY_ID,
+      ' \t\r\n',
+      'missing_credentials',
+      'access key ID and secret access key are required',
+    ],
+    [
+      '00000000-0000-3000-8000-000000000001',
+      TEST_SECRET_ACCESS_KEY,
+      'invalid_access_key_id',
+      'access key ID must be a UUIDv4',
+    ],
+    [
+      TEST_ACCESS_KEY_ID,
+      'not-canonical-base64',
+      'malformed_secret_access_key',
+      'secret access key must be non-empty canonical base64',
+    ],
+    [
+      TEST_ACCESS_KEY_ID,
+      'Zg',
+      'malformed_secret_access_key',
+      'secret access key must be non-empty canonical base64',
+    ],
+  ]
+
+  for (const [accessKeyId, secretAccessKey, kind, message] of cases) {
+    assert.throws(
+      () =>
+        new Locker({
+          accessKeyId,
+          secretAccessKey,
+          cliPath: path.resolve(
+            os.tmpdir(),
+            'locker-cli-must-not-be-resolved-for-invalid-credentials',
+          ),
+        }),
+      (error) => {
+        assert.ok(error instanceof LockerAuthenticationError)
+        assert.equal(error.code, ErrorCode.AUTHENTICATION)
+        assert.equal(error.kind, kind)
+        assert.equal(error.message, message)
+        assert.equal(error.retryable, false)
+        assert.equal(error.requestId, 'credential-validation')
+        return true
+      },
+    )
   }
 })
 

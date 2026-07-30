@@ -87,6 +87,11 @@ Migration lookup uses this fixed precedence: `LOCKER_ACCESS_KEY_ID` then
 `ACCESS_KEY_ID`, and `LOCKER_SECRET_ACCESS_KEY` then `SECRET_ACCESS_KEY`, then
 `LOCKER_ACCESS_KEY_SECRET`, then `ACCESS_KEY_SECRET`.
 
+The SDK trims outer credential whitespace, requires the access key ID to be an
+exact UUIDv4, and requires a non-empty canonical standard-Base64 secret access
+key. Invalid local credentials fail as a non-retryable
+`LockerAuthenticationError` before the SDK resolves or launches a CLI binary.
+
 ```ts
 import { Locker } from 'lockersm'
 
@@ -253,7 +258,9 @@ try {
   } else if (error instanceof LockerNotFoundError) {
     // Secret does not exist.
   } else if (error instanceof LockerAuthenticationError) {
-    // Credentials are invalid or revoked.
+    // Inspect error.kind without exposing either credential:
+    // missing_credentials, invalid_access_key_id,
+    // malformed_secret_access_key, invalid_secret_access_key, or unauthorized.
   } else if (error instanceof LockerRateLimitError && error.retryable) {
     // retryAfterSeconds is an optional validated 0..86400 hint.
   } else if (error instanceof LockerTransportError) {
@@ -262,24 +269,24 @@ try {
 }
 ```
 
-| Protocol code | JavaScript error                                   | Canonical kind                                                           |
-| ------------: | -------------------------------------------------- | ------------------------------------------------------------------------ |
-|      `-32700` | `LockerProtocolError`                              | `parse_error`                                                            |
-|      `-32600` | `LockerProtocolError`                              | `invalid_request`                                                        |
-|      `-32601` | `LockerProtocolError`                              | `method_not_found`                                                       |
-|      `-32602` | `LockerProtocolError`                              | `invalid_params`                                                         |
-|      `-32603` | `LockerProtocolError`                              | `internal_protocol_error`                                                |
-|      `-32000` | `LockerError` and legacy subtypes                  | `operation_error`, `request_rejected`, `response_too_large`, `cancelled` |
-|      `-32001` | `LockerAuthenticationError`                        | `unauthorized`; legacy `invalid_secret_access_key`                       |
-|      `-32003` | `LockerPermissionError`                            | `forbidden`; legacy `permission_denied`                                  |
-|      `-32004` | `LockerNotFoundError`                              | `secret_not_found`, `environment_not_found`; legacy not-found aliases    |
-|      `-32009` | `LockerConflictError` / `LockerAlreadyExistsError` | `conflict`, `secret_already_exists`, `environment_already_exists`        |
-|      `-32022` | `LockerValidationError`                            | `validation_error`                                                       |
-|      `-32029` | `LockerRateLimitError`                             | `rate_limited`                                                           |
-|      `-32050` | `LockerNetworkError`                               | `network_error`, `network_timeout`; legacy `http_error`                  |
-|      `-32051` | `LockerServerError`                                | `service_unavailable`, `internal_error`; legacy `server_error`           |
-|      `-32060` | `LockerStorageError`                               | `database_error`, `file_error`, `path_error`                             |
-|      `-32070` | `LockerIntegrityError`                             | integrity, transport-integrity, and data-integrity kinds                 |
+| Protocol code | JavaScript error                                   | Canonical kind                                                                                                             |
+| ------------: | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+|      `-32700` | `LockerProtocolError`                              | `parse_error`                                                                                                              |
+|      `-32600` | `LockerProtocolError`                              | `invalid_request`                                                                                                          |
+|      `-32601` | `LockerProtocolError`                              | `method_not_found`                                                                                                         |
+|      `-32602` | `LockerProtocolError`                              | `invalid_params`                                                                                                           |
+|      `-32603` | `LockerProtocolError`                              | `internal_protocol_error`                                                                                                  |
+|      `-32000` | `LockerError` and legacy subtypes                  | `operation_error`, `request_rejected`, `response_too_large`, `cancelled`                                                   |
+|      `-32001` | `LockerAuthenticationError`                        | `missing_credentials`, `invalid_access_key_id`, `malformed_secret_access_key`, `invalid_secret_access_key`, `unauthorized` |
+|      `-32003` | `LockerPermissionError`                            | `forbidden`; legacy `permission_denied`                                                                                    |
+|      `-32004` | `LockerNotFoundError`                              | `secret_not_found`, `environment_not_found`; legacy not-found aliases                                                      |
+|      `-32009` | `LockerConflictError` / `LockerAlreadyExistsError` | `conflict`, `secret_already_exists`, `environment_already_exists`                                                          |
+|      `-32022` | `LockerValidationError`                            | `validation_error`                                                                                                         |
+|      `-32029` | `LockerRateLimitError`                             | `rate_limited`                                                                                                             |
+|      `-32050` | `LockerNetworkError`                               | `network_error`, `network_timeout`; legacy `http_error`                                                                    |
+|      `-32051` | `LockerServerError`                                | `service_unavailable`, `internal_error`; legacy `server_error`                                                             |
+|      `-32060` | `LockerStorageError`                               | `database_error`, `file_error`, `path_error`                                                                               |
+|      `-32070` | `LockerIntegrityError`                             | integrity, transport-integrity, and data-integrity kinds                                                                   |
 
 Classification is numeric-first. Distinctive kinds from older CLI releases
 (`duplicate_hash`, `*_already_exists`, `conflict`, `validation_error`, and
@@ -400,8 +407,12 @@ Product help is available at [support.locker.io](https://support.locker.io).
 
 ## Troubleshooting
 
-- Authentication/permission errors: verify the canonical credential pair and
-  its project/environment scope.
+- `missing_credentials`: set both canonical credential environment variables.
+- `invalid_access_key_id` or `malformed_secret_access_key`: correct the local
+  UUIDv4/Base64 credential format.
+- `invalid_secret_access_key` or `unauthorized`: replace the credential pair or
+  verify that it has not been revoked.
+- Permission errors: verify the credential's project/environment scope.
 - `LockerTransportError`: check the API base, CA/proxy, timeout, and absolute
   CLI path; protocol bodies and CLI stderr are intentionally unavailable.
 - Managed install failure: check system time, HTTPS access to
