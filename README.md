@@ -14,39 +14,28 @@ Installing or importing the npm package never performs a network download.
 An explicit absolute, regular, non-link CLI path through `cliPath` or
 `LOCKER_CLI_PATH` always bypasses managed updates. Bare and relative values
 are rejected instead of being searched through ambient `PATH`. Otherwise, the
-first SDK client use checks the signed stable channel and persists a six-hour
-check interval. You can also force a check:
+first SDK client use checks the signed stable channel and periodically checks
+for a newer compatible release. You can also force a check:
 
 ```bash
 npx lockersm-install
 ```
 
-The SDK embeds the reviewed Ed25519 production public trust root.
-The updater verifies signed `latest.json`, the SHA-256-bound signed manifest,
-the selected artifact's size/SHA-256/raw Ed25519 signature, and its executable
-OS/architecture header. Releases are immutable under
-`~/.locker/sdk-cli/nodejs/releases/2.x.y/`; an atomic local pointer activates a fully
-verified release. Resolution order is:
+The SDK verifies signed release metadata, the CLI artifact's SHA-256 hash and
+Ed25519 signature, and its declared OS and architecture. Rollback,
+same-version replacement, signature, provenance, and integrity failures are
+rejected. Resolution order is:
 
 1. Constructor `cliPath`
 2. `LOCKER_CLI_PATH`
 3. The latest fully verified managed release
 
-Every managed capability and vault-operation spawn revalidates the local trust
-root, canonical pointer, signed manifest, private generation, executable
-header, exact size, and SHA-256 immediately before execution. Artifact bytes
-are streamed through a fixed 64 KiB buffer, so this safety check has bounded
-memory use. A newly selected generation additionally receives full detached
-Ed25519 artifact verification before adoption. Async calls reuse the already
-loaded verifier module and abort its read with the operation budget; sync calls
-use the bounded bundled helper. Neither path performs a network check unless
-the normal update deadline is due. In-place replacement with the same path,
-size, and modification time therefore fails closed. Explicit caller-owned CLI
-paths retain their existing trust semantics and skip managed-channel
+Managed binaries are reverified before execution, stored in a private
+per-user cache, and activated atomically only after verification succeeds. A
+transient network failure may use the last fully verified cached release;
+verification failures always fail closed. Explicit caller-owned CLI paths
+remain the caller's trust responsibility and skip managed-channel
 verification.
-
-On POSIX, every managed cache ancestor must be owned by the effective user and
-is revalidated at mode `0700` before updater state is used.
 
 The legacy auto-downloaded `locker_secret` binary is never selected
 automatically because it has no protocol-v1 provenance. During migration it
@@ -212,12 +201,8 @@ tree when an asynchronous call times out or is cancelled. Synchronous calls
 support a bounded timeout and detect an already-aborted signal. A call uses one
 total timeout budget across capability negotiation and the vault operation;
 each subprocess receives only the remaining time.
-On Windows, tree termination resolves the OS `taskkill.exe` through the kernel
-`SystemRoot` device path; ambient `PATH`, `SystemRoot`, and `WINDIR` values
-cannot substitute an executable.
 `maxBufferBytes` may lower the 20 MiB protocol response ceiling but cannot
-raise it. Cached capabilities are discarded when a file-backed CLI identity
-changes.
+raise it.
 
 The SDK does not automatically retry a vault RPC. Create and update are sent
 once because a lost response can leave the remote commit outcome unknown.
@@ -327,77 +312,11 @@ await locker.export({
 Import accepts dotenv assignments and INI-style environment sections. Export
 supports `txt`, `env` and `json`.
 
-## Development
+## Versioning and releases
 
-```bash
-npm ci --ignore-scripts
-npm run ci:contract
-npm audit --audit-level=high
-npm run typecheck
-npm test
-npm pack --dry-run --ignore-scripts
-```
-
-CI tests reviewed digests of the official Node.js 22 and 24 LTS Bookworm
-images. Their buildpack-deps base supplies Git for the history-backed release
-policy; the smaller development Dockerfile remains on Node.js 24 LTS Alpine.
-`npm ci --ignore-scripts` consumes the committed SHA-512-integrity lock without
-executing dependency lifecycle code. Node.js 18 and 20 are end-of-life and
-odd-numbered releases are not accepted by SDK 2.0.
-
-`npm test` builds both module formats, runs protocol conformance tests, API
-tests and package import smoke tests. To include the real CLI handshake test:
-
-```bash
-LOCKER_TEST_CLI_PATH=/path/to/locker npm test
-```
-
-The managed updater implements signed update-channel v2 at
-`https://files.locker.io/cli/releases/`. It performs a first-use check and then checks
-at most once per persisted 21,600-second interval. Signed metadata prevents
-rollback and same-version mutation; redirects, unknown fields, duplicate JSON
-keys, non-canonical encodings, wrong hashes/signatures and wrong executable
-headers fail closed. Only an actual transport failure may reuse a previously
-and fully reverified cache.
-
-Every accepted two-parent merge into protected `main` automatically publishes
-one stable patch release. CI derives the version from first-parent history,
-rejects direct/squash/rebase commits and mispointed base tags, and waits for
-the immediate predecessor tag to resolve to the current merge's first parent.
-Configure the `lockersm-npm` resource group once with process mode
-`oldest_first`; it serializes release jobs without occupying every runner,
-while the predecessor check remains a fail-closed second ordering layer. CI
-injects the version only into an isolated tracked-source copy, then builds,
-type-checks, packs and smoke-tests both CommonJS and ESM imports. Publication
-is idempotent: an existing npm version is accepted only when its SHA-512
-integrity exactly matches the locally verified tarball.
-
-This project uses self-managed GitLab and runners, so npm trusted publishing
-for GitLab.com shared runners is not available. Configure `NPM_TOKEN` as a
-protected masked npm granular access token scoped only to the `lockersm`
-package, with read/write permission and bypass-2FA enabled for CI. Give it the
-shortest practical expiry and restrict it to the runners' fixed egress IP
-ranges when npm account policy supports that control; do not use a legacy
-token. Also configure protected `LOCKER_CLI_RELEASE_PUBLIC_KEY` as the
-canonical unpadded base64url raw 32-byte value that must independently match
-the reviewed key in `locker-cli-release.json`; CI never derives the protected
-value from the packaged resource. Protect `main`, `v*`, and the `npm`
-environment.
-Reject `[ci skip]` and `[skip ci]` on `main`, and prevent the `ci.skip` or
-`ci.no_pipeline` push options where the GitLab tier supports pipeline
-execution policies.
-Do not merge the next change until the preceding release succeeds. A missing
-predecessor intentionally blocks later versions; recover and verify that exact
-failed release rather than bypassing or synthesizing a later tag.
-
-After the first pipeline creates the resource group, a Maintainer must run:
-
-```shell
-curl --request PUT \
-  --header "PRIVATE-TOKEN: <maintainer-token>" \
-  --data "process_mode=oldest_first" \
-  "https://git.cystack.org/api/v4/projects/<project-id>/resource_groups/lockersm-npm"
-```
+The package follows [Semantic Versioning](https://semver.org/). npm packages
+use `MAJOR.MINOR.PATCH` versions and source releases use matching
+`vMAJOR.MINOR.PATCH` tags.
 
 ## Security
 
