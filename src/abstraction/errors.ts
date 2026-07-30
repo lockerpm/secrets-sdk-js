@@ -405,7 +405,7 @@ function safeErrorMessage(code: number, kind: string): string {
     case ErrorCode.INTERNAL:
       return 'the Locker CLI encountered an internal protocol error'
     case ErrorCode.AUTHENTICATION:
-      return 'authentication failed'
+      return authenticationMessage(kind)
     case ErrorCode.PERMISSION_DENIED:
       return 'you do not have permission to perform this operation'
     case ErrorCode.NOT_FOUND:
@@ -458,6 +458,21 @@ function safeErrorMessage(code: number, kind: string): string {
         return 'request cancelled'
       }
       return 'the Locker operation failed'
+  }
+}
+
+function authenticationMessage(kind: string): string {
+  switch (kind) {
+    case 'missing_credentials':
+      return 'access key ID and secret access key are required'
+    case 'invalid_access_key_id':
+      return 'access key ID must be a UUIDv4'
+    case 'malformed_secret_access_key':
+      return 'secret access key must be non-empty canonical base64'
+    case 'invalid_secret_access_key':
+      return 'the secret access key does not match the access key ID'
+    default:
+      return 'authentication failed'
   }
 }
 
