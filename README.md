@@ -14,8 +14,9 @@ Installing or importing the npm package never performs a network download.
 An explicit absolute, regular, non-link CLI path through `cliPath` or
 `LOCKER_CLI_PATH` always bypasses managed updates. Bare and relative values
 are rejected instead of being searched through ambient `PATH`. Otherwise, the
-first SDK client use checks the signed stable channel and periodically checks
-for a newer compatible release. You can also force a check:
+first SDK client use checks the
+[signed release channel](https://locker.io/secrets/download) and periodically
+checks for a newer compatible release. You can also force a check:
 
 ```bash
 npx lockersm-install
@@ -320,8 +321,9 @@ use `MAJOR.MINOR.PATCH` versions and source releases use matching
 
 ## Security
 
-Report security issues privately to <contact@locker.io>. Do not include access
-keys or plaintext secrets in issue trackers.
+Report security issues through the
+[Locker Bug Bounty program](https://whitehub.net/programs/locker). Do not
+include access keys or plaintext secrets in issue trackers.
 Product help is available at [support.locker.io](https://support.locker.io).
 
 ## Troubleshooting
@@ -334,8 +336,9 @@ Product help is available at [support.locker.io](https://support.locker.io).
 - Permission errors: verify the credential's project/environment scope.
 - `LockerTransportError`: check the API base, CA/proxy, timeout, and absolute
   CLI path; protocol bodies and CLI stderr are intentionally unavailable.
-- Managed install failure: check system time, HTTPS access to
-  `files.locker.io`, and private ownership below
+- Managed install failure: check system time, access to the
+  [Locker Secrets download service](https://locker.io/secrets/download), and
+  private ownership below
   `~/.locker/sdk-cli/nodejs`.
 - Protocol failure: upgrade the SDK and CLI together or remove an incompatible
   explicit `LOCKER_CLI_PATH`.
