@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.0.0 - Unreleased
+## 2.0.4 - 2026-08-01
 
 - Adopt the stable `locker.sdk` JSON-RPC v1 protocol over stdin/stdout.
 - Remove credentials, custom headers and secret values from child-process
