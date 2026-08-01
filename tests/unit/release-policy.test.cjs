@@ -91,7 +91,7 @@ test('GitLab release coordinates bind the job token to one HTTPS origin', async 
   }
 })
 
-test('prepareRelease versions one merge and rejects direct main commits', async (t) => {
+test('prepareRelease versions merges and direct main commits alike', async (t) => {
   const { prepareRelease } = await releaseModule()
   const repository = await mkdtemp(path.join(os.tmpdir(), 'locker-js-policy-'))
   t.after(async () => {
@@ -130,18 +130,28 @@ test('prepareRelease versions one merge and rejects direct main commits', async 
   git(repository, 'merge', '--no-ff', 'feature', '-m', 'merge feature')
   const merge = git(repository, 'rev-parse', 'HEAD')
 
+  const { version: baseVersion } = JSON.parse(
+    await readFile('package.json', 'utf8'),
+  )
+  const [, baseMajor, baseMinor, basePatch] = baseVersion.match(
+    /^(\d+)\.(\d+)\.(\d+)$/u,
+  )
+  const versionAt = (distance) =>
+    `${baseMajor}.${baseMinor}.${Number(basePatch) + distance - 1}`
+  const baseTag = `v${baseVersion}`
+
   const release = await prepareRelease(repository, merge)
-  assert.equal(release.version, '2.0.0')
+  assert.equal(release.version, versionAt(1))
   assert.equal(release.firstParentDistance, 1)
   assert.equal(release.predecessorTag, '')
   assert.equal(release.predecessorCommit, '')
 
-  git(repository, 'tag', 'v2.0.0', baseline)
+  git(repository, 'tag', baseTag, baseline)
   await assert.rejects(
     prepareRelease(repository, merge),
     /does not point to the first release merge/u,
   )
-  git(repository, 'tag', '-d', 'v2.0.0')
+  git(repository, 'tag', '-d', baseTag)
 
   git(repository, 'checkout', '-b', 'feature-second-release')
   await writeFile(path.join(repository, 'second-release.txt'), 'second\n')
@@ -158,20 +168,22 @@ test('prepareRelease versions one merge and rejects direct main commits', async 
   )
   const secondMerge = git(repository, 'rev-parse', 'HEAD')
   let secondRelease = await prepareRelease(repository, secondMerge)
-  assert.equal(secondRelease.predecessorTag, 'v2.0.0')
+  assert.equal(secondRelease.predecessorTag, baseTag)
   assert.equal(secondRelease.predecessorCommit, merge)
-  git(repository, 'tag', 'v2.0.0', merge)
+  git(repository, 'tag', baseTag, merge)
   secondRelease = await prepareRelease(repository, secondMerge)
-  assert.equal(secondRelease.version, '2.0.1')
+  assert.equal(secondRelease.version, versionAt(2))
   assert.equal(secondRelease.firstParentDistance, 2)
-  assert.equal(secondRelease.predecessorTag, 'v2.0.0')
+  assert.equal(secondRelease.predecessorTag, baseTag)
   assert.equal(secondRelease.predecessorCommit, merge)
 
   await writeFile(path.join(repository, 'direct.txt'), 'direct\n')
   git(repository, 'add', 'direct.txt')
   git(repository, 'commit', '-m', 'direct')
   const direct = git(repository, 'rev-parse', 'HEAD')
-  await assert.rejects(prepareRelease(repository, direct), /two-parent merge/u)
+  const directRelease = await prepareRelease(repository, direct)
+  assert.equal(directRelease.version, versionAt(3))
+  assert.equal(directRelease.firstParentDistance, 3)
 })
 
 test('waitForPredecessor rejects missing and mispointed remote tags', async (t) => {
@@ -224,7 +236,10 @@ test('stageVersion changes only the isolated tracked-source copy', async (t) => 
   t.after(async () => {
     await rm(output, { force: true, recursive: true })
   })
-  await stageVersion(path.resolve('.'), output, '2.0.7')
+  const originalPackage = JSON.parse(await readFile('package.json', 'utf8'))
+  const stagedTargetVersion = '9.9.9'
+  assert.notEqual(originalPackage.version, stagedTargetVersion)
+  await stageVersion(path.resolve('.'), output, stagedTargetVersion)
   const stagedPackage = JSON.parse(
     await readFile(path.join(output, 'package.json'), 'utf8'),
   )
@@ -233,7 +248,10 @@ test('stageVersion changes only the isolated tracked-source copy', async (t) => 
     path.join(output, 'src', 'version.ts'),
     'utf8',
   )
-  assert.equal(stagedPackage.version, '2.0.7')
-  assert.equal(sourcePackage.version, '2.0.0')
-  assert.match(stagedVersion, /SDK_VERSION = '2\.0\.7'/u)
+  assert.equal(stagedPackage.version, stagedTargetVersion)
+  assert.equal(sourcePackage.version, originalPackage.version)
+  assert.match(
+    stagedVersion,
+    new RegExp(`SDK_VERSION = '${stagedTargetVersion}'`, 'u'),
+  )
 })

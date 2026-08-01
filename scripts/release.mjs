@@ -185,10 +185,8 @@ export async function prepareRelease(repository, commit) {
     throw new ReleaseError('release commit predates the first release')
   }
   const historyFields = history.map((line) => line.trim().split(/\s+/u))
-  if (historyFields.some((fields) => fields.length !== 3)) {
-    throw new ReleaseError(
-      'every release-line commit must be a two-parent merge commit',
-    )
+  if (historyFields.some((fields) => fields.length < 2)) {
+    throw new ReleaseError('release-line history is malformed')
   }
   if (historyFields[0][1] !== policy.baseline_commit) {
     throw new ReleaseError(
