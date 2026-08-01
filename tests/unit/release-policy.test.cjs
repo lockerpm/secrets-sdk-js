@@ -105,7 +105,7 @@ async function initRepositoryWithRemoteMain(repository, remote) {
   git(repository, 'fetch', 'origin')
 }
 
-test('prepareRelease derives the version from the tag and requires it to be on main', async (t) => {
+test('prepareRelease derives the version from the tag independent of package.json and requires it to be on main', async (t) => {
   const { prepareRelease } = await releaseModule()
   const repository = await mkdtemp(path.join(os.tmpdir(), 'locker-js-policy-'))
   const remoteRoot = await mkdtemp(
@@ -118,17 +118,14 @@ test('prepareRelease derives the version from the tag and requires it to be on m
   })
   await initRepositoryWithRemoteMain(repository, remote)
   const main = git(repository, 'rev-parse', 'HEAD')
-  const { version } = JSON.parse(await readFile('package.json', 'utf8'))
-  const tag = `v${version}`
-
-  const release = await prepareRelease(repository, tag, main)
-  assert.equal(release.version, version)
-  assert.equal(release.tag, tag)
-
-  await assert.rejects(
-    prepareRelease(repository, 'v9.9.9', main),
-    /does not match package\.json version/u,
+  const { version: sourceVersion } = JSON.parse(
+    await readFile('package.json', 'utf8'),
   )
+
+  const release = await prepareRelease(repository, 'v9.9.9', main)
+  assert.notEqual('9.9.9', sourceVersion)
+  assert.equal(release.version, '9.9.9')
+  assert.equal(release.tag, 'v9.9.9')
 
   git(repository, 'checkout', '-b', 'feature')
   await writeFile(path.join(repository, 'feature.txt'), 'feature\n')
@@ -136,7 +133,7 @@ test('prepareRelease derives the version from the tag and requires it to be on m
   git(repository, 'commit', '-m', 'feature')
   const offMain = git(repository, 'rev-parse', 'HEAD')
   await assert.rejects(
-    prepareRelease(repository, tag, offMain),
+    prepareRelease(repository, 'v9.9.9', offMain),
     /not part of the main history/u,
   )
 })
