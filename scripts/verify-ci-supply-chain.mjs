@@ -101,29 +101,26 @@ async function main() {
   for (const marker of [
     'auto_cancel:',
     'cs_newgen_docker',
-    'CI_PIPELINE_SOURCE == "merge_request_event"',
-    'CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH',
+    "- if: '$CI_COMMIT_BRANCH'",
+    'CI_COMMIT_TAG =~ /^v(0|[1-9][0-9]*)',
+    'CI_COMMIT_REF_PROTECTED',
     '- when: never',
     'scripts/release.mjs prepare',
-    'scripts/release.mjs wait-predecessor',
-    'scripts/release.mjs verify-tag',
+    'scripts/release.mjs stage-version',
     'scripts/release.mjs publish-npm',
     'scripts/release.mjs create-release',
     'resource_group: lockersm-npm',
-    'git fetch --force --tags origin',
+    'git fetch --force origin main',
   ]) {
     if (!pipeline.includes(marker)) {
-      throw new Error(`automatic main release is missing ${marker}`)
+      throw new Error(`the release pipeline is missing ${marker}`)
     }
   }
-  if (
-    pipeline.includes('CI_OPEN_MERGE_REQUESTS') ||
-    pipeline.includes("- if: '$CI_COMMIT_BRANCH'")
-  ) {
-    throw new Error('plain feature-branch pushes must not create pipelines')
+  if (pipeline.includes('CI_OPEN_MERGE_REQUESTS')) {
+    throw new Error('open-merge-request scoped rules are not reviewed')
   }
   if (pipeline.includes('when: manual')) {
-    throw new Error('the protected main release must not require manual input')
+    throw new Error('the protected tag release must not require manual input')
   }
 
   const packageJson = JSON.parse(packageText)

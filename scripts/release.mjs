@@ -67,55 +67,13 @@ async function readRegularJSON(file, fields, label) {
   return value
 }
 
-async function loadPolicy(repository) {
-  const policy = await readRegularJSON(
-    path.join(repository, 'scripts', 'release-policy.json'),
-    [
-      'schema_version',
-      'baseline_commit',
-      'first_release_distance',
-      'mainline_mode',
-    ],
-    'release policy',
-  )
-  if (
-    policy.schema_version !== 1 ||
-    !commitPattern.test(policy.baseline_commit) ||
-    policy.first_release_distance !== 1 ||
-    policy.mainline_mode !== 'merge_commit'
-  ) {
-    throw new ReleaseError('release policy values are invalid')
+export async function prepareRelease(repository, tag, commit) {
+  if (!tagPattern.test(tag)) {
+    throw new ReleaseError('release tag must match vMAJOR.MINOR.PATCH')
   }
-  return policy
-}
-
-function localTagCommit(repository, tag) {
-  const result = spawnSync(
-    'git',
-    [
-      '-C',
-      repository,
-      'rev-parse',
-      '--verify',
-      '--quiet',
-      `refs/tags/${tag}^{commit}`,
-    ],
-    { encoding: 'utf8', windowsHide: true },
-  )
-  if (result.status === 1) {
-    return undefined
-  }
-  if (result.status !== 0 || !commitPattern.test(result.stdout.trim())) {
-    throw new ReleaseError('cannot inspect the local release tag')
-  }
-  return result.stdout.trim()
-}
-
-export async function prepareRelease(repository, commit) {
   if (!commitPattern.test(commit)) {
     throw new ReleaseError('release commit must be a full object ID')
   }
-  const policy = await loadPolicy(repository)
   const packageJSON = await readRegularJSON(
     path.join(repository, 'package.json'),
     [
@@ -153,7 +111,14 @@ export async function prepareRelease(repository, commit) {
   ) {
     throw new ReleaseError('release checkout contains tracked changes')
   }
-  git(repository, 'cat-file', '-e', `${policy.baseline_commit}^{commit}`)
+  const version = tag.slice(1)
+  if (version !== packageJSON.version) {
+    throw new ReleaseError(
+      `release tag ${tag} does not match package.json version ` +
+        packageJSON.version,
+    )
+  }
+  git(repository, 'cat-file', '-e', 'refs/remotes/origin/main^{commit}')
   const ancestor = spawnSync(
     'git',
     [
@@ -161,56 +126,13 @@ export async function prepareRelease(repository, commit) {
       repository,
       'merge-base',
       '--is-ancestor',
-      policy.baseline_commit,
       commit,
+      'refs/remotes/origin/main',
     ],
     { encoding: 'utf8', windowsHide: true },
   )
   if (ancestor.status !== 0) {
-    throw new ReleaseError(
-      'release commit is not descended from the policy baseline',
-    )
-  }
-  const history = git(
-    repository,
-    'rev-list',
-    '--first-parent',
-    '--reverse',
-    '--parents',
-    `${policy.baseline_commit}..${commit}`,
-  )
-    .split(/\r?\n/u)
-    .filter(Boolean)
-  if (history.length < policy.first_release_distance) {
-    throw new ReleaseError('release commit predates the first release')
-  }
-  const historyFields = history.map((line) => line.trim().split(/\s+/u))
-  if (historyFields.some((fields) => fields.length !== 3)) {
-    throw new ReleaseError(
-      'every release-line commit must be a two-parent merge commit',
-    )
-  }
-  if (historyFields[0][1] !== policy.baseline_commit) {
-    throw new ReleaseError(
-      "release policy baseline is not the first release merge's first parent",
-    )
-  }
-  if (historyFields.at(-1)[0] !== commit) {
-    throw new ReleaseError(
-      'release commit is not the newest first-parent release',
-    )
-  }
-  const [, major, minor, basePatch] = packageJSON.version.match(versionPattern)
-  const version = `${major}.${minor}.${
-    Number(basePatch) + history.length - policy.first_release_distance
-  }`
-  const baseTag = `v${packageJSON.version}`
-  const taggedCommit = localTagCommit(repository, baseTag)
-  const firstReleaseCommit = historyFields[0][0]
-  if (taggedCommit && taggedCommit !== firstReleaseCommit) {
-    throw new ReleaseError(
-      `base tag ${baseTag} does not point to the first release merge`,
-    )
+    throw new ReleaseError('release commit is not part of the main history')
   }
   const sourceDateEpoch = Number(
     git(repository, 'show', '-s', '--format=%ct', commit),
@@ -218,22 +140,7 @@ export async function prepareRelease(repository, commit) {
   if (!Number.isSafeInteger(sourceDateEpoch) || sourceDateEpoch < 1) {
     throw new ReleaseError('release commit timestamp is invalid')
   }
-  let predecessorTag = ''
-  let predecessorCommit = ''
-  if (history.length > policy.first_release_distance) {
-    const predecessorPatch =
-      Number(basePatch) + history.length - policy.first_release_distance - 1
-    predecessorTag = `v${major}.${minor}.${predecessorPatch}`
-    predecessorCommit = historyFields.at(-2)[0]
-  }
-  return {
-    version,
-    tag: `v${version}`,
-    firstParentDistance: history.length,
-    sourceDateEpoch,
-    predecessorTag,
-    predecessorCommit,
-  }
+  return { version, tag, sourceDateEpoch }
 }
 
 async function writeAtomic(file, value) {
@@ -326,94 +233,6 @@ export async function stageVersion(repository, output, version) {
       `export const SDK_VERSION = '${version}'`,
     ),
   )
-}
-
-function parseRemoteTag(output, tag) {
-  const references = new Map()
-  for (const line of output.split(/\r?\n/u).filter(Boolean)) {
-    const [commit, reference, extra] = line.trim().split(/\s+/u)
-    if (extra || !commitPattern.test(commit) || !reference) {
-      throw new ReleaseError('remote returned malformed tag data')
-    }
-    if (references.has(reference) && references.get(reference) !== commit) {
-      throw new ReleaseError('remote returned conflicting tag data')
-    }
-    references.set(reference, commit)
-  }
-  return (
-    references.get(`refs/tags/${tag}^{}`) ?? references.get(`refs/tags/${tag}`)
-  )
-}
-
-function remoteTagCommit(repository, tag) {
-  if (!tagPattern.test(tag)) {
-    throw new ReleaseError('remote tag is invalid')
-  }
-  const result = spawnSync(
-    'git',
-    [
-      '-C',
-      repository,
-      'ls-remote',
-      '--tags',
-      'origin',
-      `refs/tags/${tag}`,
-      `refs/tags/${tag}^{}`,
-    ],
-    { encoding: 'utf8', windowsHide: true },
-  )
-  if (result.status !== 0) {
-    throw new ReleaseError('cannot query remote release tag')
-  }
-  return parseRemoteTag(result.stdout, tag)
-}
-
-function verifyRemoteTag(repository, tag, commit) {
-  if (!tagPattern.test(tag) || !commitPattern.test(commit)) {
-    throw new ReleaseError('remote tag verification input is invalid')
-  }
-  const existing = remoteTagCommit(repository, tag)
-  if (existing && existing !== commit) {
-    throw new ReleaseError(`remote tag ${tag} points to another commit`)
-  }
-}
-
-export async function waitForPredecessor(
-  repository,
-  tag,
-  commit,
-  attempts = 80,
-  delayMilliseconds = 15_000,
-) {
-  if (tag === '' && commit === '') return
-  if (
-    !tagPattern.test(tag) ||
-    !commitPattern.test(commit) ||
-    !Number.isSafeInteger(attempts) ||
-    attempts < 1 ||
-    attempts > 120 ||
-    !Number.isSafeInteger(delayMilliseconds) ||
-    delayMilliseconds < 0 ||
-    delayMilliseconds > 60_000
-  ) {
-    throw new ReleaseError('predecessor gate input is invalid')
-  }
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const existing = remoteTagCommit(repository, tag)
-    if (existing) {
-      if (existing !== commit) {
-        throw new ReleaseError(
-          `predecessor tag ${tag} points to another commit`,
-        )
-      }
-      process.stdout.write(`verified predecessor ${tag} at ${commit}\n`)
-      return
-    }
-    if (attempt < attempts) {
-      await new Promise((resolve) => setTimeout(resolve, delayMilliseconds))
-    }
-  }
-  throw new ReleaseError(`predecessor tag ${tag} is not available`)
 }
 
 async function readBoundedResponse(response) {
@@ -694,6 +513,7 @@ async function command(values) {
   if (name === 'prepare') {
     const release = await prepareRelease(
       path.resolve(options.repository ?? root),
+      options.tag ?? '',
       options.commit ?? '',
     )
     const output = path.resolve(options.output ?? 'release.env')
@@ -701,13 +521,10 @@ async function command(values) {
       output,
       `LOCKER_SDK_VERSION=${release.version}\n` +
         `LOCKER_RELEASE_TAG=${release.tag}\n` +
-        `SOURCE_DATE_EPOCH=${release.sourceDateEpoch}\n` +
-        `LOCKER_PREDECESSOR_TAG=${release.predecessorTag}\n` +
-        `LOCKER_PREDECESSOR_COMMIT=${release.predecessorCommit}\n`,
+        `SOURCE_DATE_EPOCH=${release.sourceDateEpoch}\n`,
     )
     process.stdout.write(
-      `prepared lockersm ${release.version} (${release.tag}, ` +
-        `first-parent distance ${release.firstParentDistance})\n`,
+      `prepared lockersm ${release.version} (${release.tag})\n`,
     )
     return
   }
@@ -716,22 +533,6 @@ async function command(values) {
       path.resolve(options.repository ?? root),
       path.resolve(options.output ?? ''),
       options.version ?? '',
-    )
-    return
-  }
-  if (name === 'wait-predecessor') {
-    await waitForPredecessor(
-      path.resolve(options.repository ?? root),
-      options.tag ?? '',
-      options.commit ?? '',
-    )
-    return
-  }
-  if (name === 'verify-tag') {
-    verifyRemoteTag(
-      path.resolve(options.repository ?? root),
-      options.tag ?? '',
-      options.commit ?? '',
     )
     return
   }
