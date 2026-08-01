@@ -375,9 +375,15 @@ async function publishNpm(artifact, version) {
     },
   )
   if (published.status !== 0) {
-    const output = (published.stderr || published.stdout || '')
-      .trim()
-      .slice(0, 4_000)
+    const combined = `${published.stderr || ''}\n${published.stdout || ''}`
+    const errorLines = combined
+      .split(/\r?\n/u)
+      .filter((line) => /^npm (error|err!)/iu.test(line))
+    const output = (
+      errorLines.length > 0
+        ? errorLines.join('\n')
+        : combined.trim().slice(-4_000)
+    ).slice(0, 4_000)
     process.stderr.write(`npm publish exited ${published.status}\n${output}\n`)
   }
   for (let attempt = 0; attempt < 20; attempt += 1) {
