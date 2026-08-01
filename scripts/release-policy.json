@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "baseline_commit": "de68727ad3bac1cfe6b116452ceab2635e7b1931",
+  "baseline_commit": "1ab685ab89f5172c9f7b455f937a462c211ca47b",
   "first_release_distance": 1,
   "mainline_mode": "merge_commit"
 }
