@@ -118,10 +118,12 @@ test('prepareRelease derives the version from the tag and requires it to be on m
   })
   await initRepositoryWithRemoteMain(repository, remote)
   const main = git(repository, 'rev-parse', 'HEAD')
+  const { version } = JSON.parse(await readFile('package.json', 'utf8'))
+  const tag = `v${version}`
 
-  const release = await prepareRelease(repository, 'v2.0.0', main)
-  assert.equal(release.version, '2.0.0')
-  assert.equal(release.tag, 'v2.0.0')
+  const release = await prepareRelease(repository, tag, main)
+  assert.equal(release.version, version)
+  assert.equal(release.tag, tag)
 
   await assert.rejects(
     prepareRelease(repository, 'v9.9.9', main),
@@ -134,7 +136,7 @@ test('prepareRelease derives the version from the tag and requires it to be on m
   git(repository, 'commit', '-m', 'feature')
   const offMain = git(repository, 'rev-parse', 'HEAD')
   await assert.rejects(
-    prepareRelease(repository, 'v2.0.0', offMain),
+    prepareRelease(repository, tag, offMain),
     /not part of the main history/u,
   )
 })
@@ -146,7 +148,10 @@ test('stageVersion changes only the isolated tracked-source copy', async (t) => 
   t.after(async () => {
     await rm(output, { force: true, recursive: true })
   })
-  await stageVersion(path.resolve('.'), output, '2.0.7')
+  const originalPackage = JSON.parse(await readFile('package.json', 'utf8'))
+  const stagedTargetVersion = '9.9.9'
+  assert.notEqual(originalPackage.version, stagedTargetVersion)
+  await stageVersion(path.resolve('.'), output, stagedTargetVersion)
   const stagedPackage = JSON.parse(
     await readFile(path.join(output, 'package.json'), 'utf8'),
   )
@@ -155,7 +160,10 @@ test('stageVersion changes only the isolated tracked-source copy', async (t) => 
     path.join(output, 'src', 'version.ts'),
     'utf8',
   )
-  assert.equal(stagedPackage.version, '2.0.7')
-  assert.equal(sourcePackage.version, '2.0.0')
-  assert.match(stagedVersion, /SDK_VERSION = '2\.0\.7'/u)
+  assert.equal(stagedPackage.version, stagedTargetVersion)
+  assert.equal(sourcePackage.version, originalPackage.version)
+  assert.match(
+    stagedVersion,
+    new RegExp(`SDK_VERSION = '${stagedTargetVersion}'`, 'u'),
+  )
 })
