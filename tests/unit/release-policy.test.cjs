@@ -91,50 +91,129 @@ test('GitLab release coordinates bind the job token to one HTTPS origin', async 
   }
 })
 
-async function initRepositoryWithRemoteMain(repository, remote) {
+test('prepareRelease versions one merge and rejects direct main commits', async (t) => {
+  const { prepareRelease } = await releaseModule()
+  const repository = await mkdtemp(path.join(os.tmpdir(), 'locker-js-policy-'))
+  t.after(async () => {
+    await rm(repository, { force: true, recursive: true })
+  })
+  await mkdir(path.join(repository, 'scripts'))
+  await cp('package.json', path.join(repository, 'package.json'))
   git(repository, 'init', '-b', 'main')
   git(repository, 'config', 'user.name', 'Release Test')
   git(repository, 'config', 'user.email', 'release@test.invalid')
   git(repository, 'config', 'commit.gpgsign', 'false')
-  await cp('package.json', path.join(repository, 'package.json'))
-  git(repository, 'add', 'package.json')
+  git(repository, 'add', '.')
   git(repository, 'commit', '-m', 'baseline')
-  git(remote.root, 'init', '--bare', remote.path)
-  git(repository, 'remote', 'add', 'origin', remote.path)
-  git(repository, 'push', 'origin', 'main')
-  git(repository, 'fetch', 'origin')
-}
-
-test('prepareRelease derives the version from the tag independent of package.json and requires it to be on main', async (t) => {
-  const { prepareRelease } = await releaseModule()
-  const repository = await mkdtemp(path.join(os.tmpdir(), 'locker-js-policy-'))
-  const remoteRoot = await mkdtemp(
-    path.join(os.tmpdir(), 'locker-js-policy-remote-'),
+  const baseline = git(repository, 'rev-parse', 'HEAD')
+  git(repository, 'checkout', '-b', 'feature')
+  await writeFile(
+    path.join(repository, 'scripts', 'release-policy.json'),
+    `${JSON.stringify(
+      {
+        schema_version: 1,
+        baseline_commit: baseline,
+        first_release_distance: 1,
+        mainline_mode: 'merge_commit',
+      },
+      null,
+      2,
+    )}\n`,
   )
-  const remote = { root: remoteRoot, path: path.join(remoteRoot, 'origin.git') }
+  await writeFile(path.join(repository, 'feature.txt'), 'feature\n')
+  git(repository, 'add', 'feature.txt', 'scripts/release-policy.json')
+  git(repository, 'commit', '-m', 'feature one')
+  await writeFile(path.join(repository, 'feature-two.txt'), 'feature two\n')
+  git(repository, 'add', 'feature-two.txt')
+  git(repository, 'commit', '-m', 'feature two')
+  git(repository, 'checkout', 'main')
+  git(repository, 'merge', '--no-ff', 'feature', '-m', 'merge feature')
+  const merge = git(repository, 'rev-parse', 'HEAD')
+
+  const release = await prepareRelease(repository, merge)
+  assert.equal(release.version, '2.0.0')
+  assert.equal(release.firstParentDistance, 1)
+  assert.equal(release.predecessorTag, '')
+  assert.equal(release.predecessorCommit, '')
+
+  git(repository, 'tag', 'v2.0.0', baseline)
+  await assert.rejects(
+    prepareRelease(repository, merge),
+    /does not point to the first release merge/u,
+  )
+  git(repository, 'tag', '-d', 'v2.0.0')
+
+  git(repository, 'checkout', '-b', 'feature-second-release')
+  await writeFile(path.join(repository, 'second-release.txt'), 'second\n')
+  git(repository, 'add', 'second-release.txt')
+  git(repository, 'commit', '-m', 'second release')
+  git(repository, 'checkout', 'main')
+  git(
+    repository,
+    'merge',
+    '--no-ff',
+    'feature-second-release',
+    '-m',
+    'merge second',
+  )
+  const secondMerge = git(repository, 'rev-parse', 'HEAD')
+  let secondRelease = await prepareRelease(repository, secondMerge)
+  assert.equal(secondRelease.predecessorTag, 'v2.0.0')
+  assert.equal(secondRelease.predecessorCommit, merge)
+  git(repository, 'tag', 'v2.0.0', merge)
+  secondRelease = await prepareRelease(repository, secondMerge)
+  assert.equal(secondRelease.version, '2.0.1')
+  assert.equal(secondRelease.firstParentDistance, 2)
+  assert.equal(secondRelease.predecessorTag, 'v2.0.0')
+  assert.equal(secondRelease.predecessorCommit, merge)
+
+  await writeFile(path.join(repository, 'direct.txt'), 'direct\n')
+  git(repository, 'add', 'direct.txt')
+  git(repository, 'commit', '-m', 'direct')
+  const direct = git(repository, 'rev-parse', 'HEAD')
+  await assert.rejects(prepareRelease(repository, direct), /two-parent merge/u)
+})
+
+test('waitForPredecessor rejects missing and mispointed remote tags', async (t) => {
+  const { waitForPredecessor } = await releaseModule()
+  const repository = await mkdtemp(
+    path.join(os.tmpdir(), 'locker-js-predecessor-'),
+  )
+  const remoteRoot = await mkdtemp(
+    path.join(os.tmpdir(), 'locker-js-predecessor-remote-'),
+  )
+  const remote = path.join(remoteRoot, 'origin.git')
   t.after(async () => {
     await rm(repository, { force: true, recursive: true })
     await rm(remoteRoot, { force: true, recursive: true })
   })
-  await initRepositoryWithRemoteMain(repository, remote)
-  const main = git(repository, 'rev-parse', 'HEAD')
-  const { version: sourceVersion } = JSON.parse(
-    await readFile('package.json', 'utf8'),
-  )
+  git(repository, 'init', '-b', 'main')
+  git(repository, 'config', 'user.name', 'Release Test')
+  git(repository, 'config', 'user.email', 'release@test.invalid')
+  git(repository, 'config', 'commit.gpgsign', 'false')
+  await writeFile(path.join(repository, 'first.txt'), 'first\n')
+  git(repository, 'add', 'first.txt')
+  git(repository, 'commit', '-m', 'first')
+  const first = git(repository, 'rev-parse', 'HEAD')
+  await writeFile(path.join(repository, 'second.txt'), 'second\n')
+  git(repository, 'add', 'second.txt')
+  git(repository, 'commit', '-m', 'second')
+  const second = git(repository, 'rev-parse', 'HEAD')
+  git(remoteRoot, 'init', '--bare', remote)
+  git(repository, 'remote', 'add', 'origin', remote)
+  git(repository, 'push', 'origin', 'main')
 
-  const release = await prepareRelease(repository, 'v9.9.9', main)
-  assert.notEqual('9.9.9', sourceVersion)
-  assert.equal(release.version, '9.9.9')
-  assert.equal(release.tag, 'v9.9.9')
-
-  git(repository, 'checkout', '-b', 'feature')
-  await writeFile(path.join(repository, 'feature.txt'), 'feature\n')
-  git(repository, 'add', 'feature.txt')
-  git(repository, 'commit', '-m', 'feature')
-  const offMain = git(repository, 'rev-parse', 'HEAD')
+  await waitForPredecessor(repository, '', '', 1, 0)
   await assert.rejects(
-    prepareRelease(repository, 'v9.9.9', offMain),
-    /not part of the main history/u,
+    waitForPredecessor(repository, 'v2.0.0', first, 1, 0),
+    /not available/u,
+  )
+  git(repository, 'tag', 'v2.0.0', first)
+  git(repository, 'push', 'origin', 'v2.0.0')
+  await waitForPredecessor(repository, 'v2.0.0', first, 1, 0)
+  await assert.rejects(
+    waitForPredecessor(repository, 'v2.0.0', second, 1, 0),
+    /another commit/u,
   )
 })
 
@@ -145,10 +224,7 @@ test('stageVersion changes only the isolated tracked-source copy', async (t) => 
   t.after(async () => {
     await rm(output, { force: true, recursive: true })
   })
-  const originalPackage = JSON.parse(await readFile('package.json', 'utf8'))
-  const stagedTargetVersion = '9.9.9'
-  assert.notEqual(originalPackage.version, stagedTargetVersion)
-  await stageVersion(path.resolve('.'), output, stagedTargetVersion)
+  await stageVersion(path.resolve('.'), output, '2.0.7')
   const stagedPackage = JSON.parse(
     await readFile(path.join(output, 'package.json'), 'utf8'),
   )
@@ -157,10 +233,7 @@ test('stageVersion changes only the isolated tracked-source copy', async (t) => 
     path.join(output, 'src', 'version.ts'),
     'utf8',
   )
-  assert.equal(stagedPackage.version, stagedTargetVersion)
-  assert.equal(sourcePackage.version, originalPackage.version)
-  assert.match(
-    stagedVersion,
-    new RegExp(`SDK_VERSION = '${stagedTargetVersion}'`, 'u'),
-  )
+  assert.equal(stagedPackage.version, '2.0.7')
+  assert.equal(sourcePackage.version, '2.0.0')
+  assert.match(stagedVersion, /SDK_VERSION = '2\.0\.7'/u)
 })

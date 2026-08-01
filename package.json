@@ -1,6 +1,6 @@
 {
   "name": "lockersm",
-  "version": "2.0.4",
+  "version": "2.0.0",
   "description": "Official Locker Secrets SDK for Node.js",
   "exports": {
     ".": {
@@ -49,8 +49,7 @@
     "typecheck": "tsc -p ./configs/tsconfig.esm.json --noEmit && tsc -p ./configs/tsconfig.cjs.json --noEmit && tsc -p ./configs/tsconfig.tests.json",
     "prepack": "npm run build",
     "test": "npm run build && node ./scripts/test.mjs",
-    "install:cli": "node setup.js",
-    "version": "node ./scripts/sync-version.mjs && git add src/version.ts"
+    "install:cli": "node setup.js"
   },
   "author": "CyStack",
   "license": "Apache-2.0",
