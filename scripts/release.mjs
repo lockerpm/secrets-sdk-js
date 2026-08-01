@@ -383,6 +383,12 @@ async function publishNpm(artifact, version) {
       windowsHide: true,
     },
   )
+  if (published.status !== 0) {
+    const output = (published.stderr || published.stdout || '')
+      .trim()
+      .slice(0, 4_000)
+    process.stderr.write(`npm publish exited ${published.status}\n${output}\n`)
+  }
   for (let attempt = 0; attempt < 20; attempt += 1) {
     if (await reconcile()) {
       process.stdout.write(`published and verified lockersm ${version}\n`)
