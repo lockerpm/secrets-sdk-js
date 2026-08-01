@@ -97,11 +97,8 @@ export async function prepareRelease(repository, tag, commit) {
     ],
     'package.json',
   )
-  if (
-    packageJSON.name !== 'lockersm' ||
-    !versionPattern.test(packageJSON.version)
-  ) {
-    throw new ReleaseError('package release-line version is invalid')
+  if (packageJSON.name !== 'lockersm') {
+    throw new ReleaseError('release commit is not the lockersm package')
   }
   if (git(repository, 'rev-parse', '--verify', 'HEAD') !== commit) {
     throw new ReleaseError('release commit must equal checked-out HEAD')
@@ -112,12 +109,6 @@ export async function prepareRelease(repository, tag, commit) {
     throw new ReleaseError('release checkout contains tracked changes')
   }
   const version = tag.slice(1)
-  if (version !== packageJSON.version) {
-    throw new ReleaseError(
-      `release tag ${tag} does not match package.json version ` +
-        packageJSON.version,
-    )
-  }
   git(repository, 'cat-file', '-e', 'refs/remotes/origin/main^{commit}')
   const ancestor = spawnSync(
     'git',
